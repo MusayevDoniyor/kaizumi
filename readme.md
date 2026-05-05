@@ -1,8 +1,12 @@
 # 🤖 Kaizumi
 
-**Watch The Detailed Video To Set-up This Model**: https://www.youtube.com/watch?v=BhOsnGC_sAA
+This repository is a **personal fork/customization** of the original project by **FatihMakes**.
 
-### Next-Generation Personal AI Assistant — By FatihMakes
+- **Your repo (this fork)**: `https://github.com/MusayevDoniyor/kaizumi`
+- **Original author**: [@FatihMakes](https://www.youtube.com/@FatihMakes)
+- **Original setup video (by the author)**: `https://www.youtube.com/watch?v=BhOsnGC_sAA`
+
+### Next-Generation Personal AI Assistant (Fork)
 
 A real-time voice AI that can hear, see, understand, and control your Windows computer.
 Local execution. Zero subscriptions (unless you want to increase requests via Google AI Studio).
@@ -49,8 +53,8 @@ Designed for speed, autonomy, and real-world usability.
 ## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/FatihMakes/Mark-XXXV.git
-cd Mark-XXXV
+git clone https://github.com/MusayevDoniyor/kaizumi.git
+cd kaizumi
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
