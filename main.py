@@ -48,6 +48,8 @@ from actions.web_search        import web_search as web_search_action
 from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
 from actions.system_status     import system_status
+from actions.task_manager      import task_manager
+from actions.clipboard         import clipboard_action
 
 
 def get_base_dir():
@@ -257,11 +259,11 @@ TOOL_DECLARATIONS = [
     {
         "name": "screen_process",
         "description": (
-            "Captures and analyzes the screen or webcam image. "
-            "MUST be called when user asks what is on screen, what you see, "
-            "analyze my screen, look at camera, etc. "
-            "You have NO visual ability without this tool. "
-            "After calling this tool, stay SILENT — the vision module speaks directly."
+            "Captures and analyzes the screen or webcam image and RETURNS the analysis "
+            "as text. MUST be called when user asks what is on screen, what you see, "
+            "analyze my screen, look at camera, etc. You have NO visual ability without "
+            "this tool. After it returns, speak the result naturally. "
+            "No other vision channel exists — this is the only way to see."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -561,6 +563,55 @@ TOOL_DECLARATIONS = [
             "required": ["category", "key", "value"]
         }
     },
+    {
+        "name": "recall_memory",
+        "description": (
+            "Search long-term memory for a stored fact about the user. "
+            "Use when the user asks 'do you remember...', 'what do you know about...', "
+            "'what's my favorite...', or when you need a saved detail mid-conversation "
+            "(name, preferences, projects, people). Returns what you know."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "query":    {"type": "STRING", "description": "What to look for (e.g. 'favorite food', 'sister', 'project')"},
+                "category": {"type": "STRING", "description": "Optional: identity | preferences | projects | relationships | wishes | notes"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "task_manager",
+        "description": (
+            "Check or control background agent tasks started via agent_task. "
+            "Use for: 'how is my task going?', 'status of my task', 'cancel that task', "
+            "'what tasks are running?'. You get a task_id when you start agent_task."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":  {"type": "STRING", "description": "status | list | cancel"},
+                "task_id": {"type": "STRING", "description": "Task ID for status/cancel"}
+            },
+            "required": ["action"]
+        }
+    },
+    {
+        "name": "clipboard",
+        "description": (
+            "Manage the system clipboard: read what's copied, copy text, paste it, "
+            "clear it, or recall recent copied items. "
+            "Use for 'copy that to clipboard', 'what's on my clipboard?', 'paste it'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "get | set | paste | clear | history | copy_last"},
+                "text":   {"type": "STRING", "description": "Text for set/copy action"}
+            },
+            "required": ["action"]
+        }
+    },
 ]
 
 
@@ -744,13 +795,8 @@ class JarvisLive:
                 result = r or "Done."
 
             elif name == "screen_process":
-                threading.Thread(
-                    target=screen_process,
-                    kwargs={"parameters": args, "response": None,
-                            "player": self.ui, "session_memory": None},
-                    daemon=True
-                ).start()
-                result = "Vision module activated. Stay completely silent — vision module will speak directly."
+                r = await loop.run_in_executor(None, lambda: screen_process(parameters=args, player=self.ui))
+                result = r or "Vision analysis completed."
 
             elif name == "computer_settings":
                 r = await loop.run_in_executor(None, lambda: computer_settings(parameters=args, response=None, player=self.ui))
@@ -790,6 +836,22 @@ class JarvisLive:
             elif name == "system_status":
                 r = await loop.run_in_executor(None, lambda: system_status(parameters=args, player=self.ui))
                 result = r or "System status retrieved."
+
+            elif name == "task_manager":
+                r = await loop.run_in_executor(None, lambda: task_manager(parameters=args, player=self.ui))
+                result = r or "Task info retrieved."
+
+            elif name == "clipboard":
+                r = await loop.run_in_executor(None, lambda: clipboard_action(parameters=args, player=self.ui))
+                result = r or "Clipboard operation done."
+
+            elif name == "recall_memory":
+                from memory.memory_manager import search_memory
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: search_memory(args.get("query", ""), args.get("category", ""))
+                )
+                result = r or "No memory found."
 
             elif name == "game_updater":
                 r = await loop.run_in_executor(None, lambda: game_updater(parameters=args, player=self.ui, speak=self.speak))

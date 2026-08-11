@@ -305,5 +305,36 @@ def forget(key: str, category: str = "notes") -> str:
         return f"Forgotten: {category}/{key}"
     return f"Not found: {category}/{key}"
 
+
+def search_memory(query: str, category: str = "") -> str:
+    """Search stored long-term facts. Returns a short readable summary.
+    `category` optionally narrows to identity|preferences|projects|relationships|wishes|notes."""
+    if not query or not query.strip():
+        return ""
+    q = query.lower().strip()
+    memory   = load_memory()
+    findings = []
+
+    for cat_name, cat in memory.items():
+        if category and cat_name != category:
+            continue
+        if not isinstance(cat, dict):
+            continue
+        for key, entry in cat.items():
+            val = entry.get("value") if isinstance(entry, dict) else entry
+            if val is None:
+                continue
+            val_s = str(val)
+            key_s = str(key).replace("_", " ")
+            if q in key_s.lower() or q in val_s.lower():
+                findings.append(f"{cat_name}/{key}: {val_s}")
+
+    if not findings:
+        return f"I don't have anything saved matching '{query}', sir."
+    if len(findings) > 6:
+        findings = findings[:6]
+    return "I remember: " + "; ".join(findings)
+
+
 # Alias — eski import'larla uyumluluk için
 forget_memory = forget

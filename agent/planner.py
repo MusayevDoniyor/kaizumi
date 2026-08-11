@@ -78,6 +78,18 @@ computer_control
 system_status
   focus: "overview" | "battery" | "cpu" | "memory" | "disk" | "network" | "processes" | "uptime" (optional, default: overview)
 
+task_manager
+  action: "status" | "list" | "cancel" (required)
+  task_id: string (for status/cancel)
+
+clipboard
+  action: "get" | "set" | "paste" | "clear" | "history" | "copy_last" (required)
+  text: string (for set)
+
+recall_memory
+  query: string (required)
+  category: "identity" | "preferences" | "projects" | "relationships" | "wishes" | "notes" (optional)
+
 screen_process
   text: string (required) — what to analyze or ask about the screen
   angle: "screen" | "camera" (optional)

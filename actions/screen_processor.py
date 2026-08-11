@@ -145,8 +145,37 @@ def _capture_camera() -> bytes:
     return buf.tobytes()
 
 
-class _LiveSession:
+def _analyze_image_text(image_bytes: bytes, mime_type: str, user_text: str, model: str = "gemini-2.5-flash") -> str:
+    """Synchronous vision: send image + question to Gemini, return the text answer.
+    This is the path that feeds vision results BACK into the main conversation."""
+    import google.genai.types as gtypes
+    client = genai.Client(
+        api_key=_get_api_key(),
+        http_options={"api_version": "v1beta"}
+    )
+    prompt = (
+        "You are Kaizumi's vision module. Analyze the attached image and answer "
+        "the user's question. Be concise, accurate, and address the user as 'sir'. "
+        "Max 2-3 short sentences. The main assistant will relay your answer.\n\n"
+        f"User's question: {user_text}"
+    )
+    try:
+        resp = client.models.generate_content(
+            model=model,
+            contents=[
+                gtypes.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                prompt,
+            ],
+        )
+        text = (resp.text or "").strip()
+        if not text:
+            return "I looked at the image but couldn't make out an answer, sir."
+        return text
+    except Exception as e:
+        return f"Vision analysis failed: {e}"
 
+
+class _LiveSession:
     def __init__(self):
         self._loop:      asyncio.AbstractEventLoop | None = None
         self._thread:    threading.Thread | None          = None
@@ -312,17 +341,14 @@ def screen_process(
     response:       str | None = None,
     player=None,
     session_memory=None,
-) -> bool:
+) -> str:
     user_text = (parameters or {}).get("text") or (parameters or {}).get("user_text", "")
     user_text = (user_text or "").strip()
     if not user_text:
-        print("[ScreenProcess] ⚠️ No user_text provided.")
-        return False
+        return "No question provided for screen analysis, sir."
 
     angle = (parameters or {}).get("angle", "screen").lower().strip()
     print(f"[ScreenProcess] angle={angle!r}  text={user_text!r}")
-
-    _ensure_started(player=player)
 
     try:
         if angle == "camera":
@@ -336,11 +362,14 @@ def screen_process(
     except Exception as e:
         import traceback; traceback.print_exc()
         print(f"[ScreenProcess] ❌ Capture error: {e}")
-        return False
+        return f"Screen capture failed: {e}"
 
-    print(f"[ScreenProcess] 📦 {len(image_bytes)} bytes → sending")
-    _live.analyze(image_bytes, mime_type, user_text)
-    return True
+    print(f"[ScreenProcess] 📦 {len(image_bytes)} bytes → analyzing")
+    answer = _analyze_image_text(image_bytes, mime_type, user_text)
+    if player:
+        player.write_log(f"Kaizumi: {answer}")
+    print(f"[ScreenProcess] 💬 {answer}")
+    return answer
 
 
 def warmup_session(player=None):

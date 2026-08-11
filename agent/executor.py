@@ -205,8 +205,7 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
 
     elif tool == "screen_process":
         from actions.screen_processor import screen_process
-        screen_process(parameters=parameters, player=None)
-        return "Screen captured and analyzed."
+        return screen_process(parameters=parameters, player=None) or "Screen captured and analyzed."
 
     elif tool == "send_message":
         from actions.send_message import send_message
@@ -239,6 +238,18 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
     elif tool == "system_status":
         from actions.system_status import system_status
         return system_status(parameters=parameters, player=None) or "Done."
+
+    elif tool == "task_manager":
+        from actions.task_manager import task_manager
+        return task_manager(parameters=parameters, player=None) or "Done."
+
+    elif tool == "clipboard":
+        from actions.clipboard import clipboard_action
+        return clipboard_action(parameters=parameters, player=None) or "Done."
+
+    elif tool == "recall_memory":
+        from memory.memory_manager import search_memory
+        return search_memory(parameters.get("query", ""), parameters.get("category", "")) or "Done."
 
     elif tool == "generated_code":
         # Safety-first: do not execute LLM-generated arbitrary code by default.
