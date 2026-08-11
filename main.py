@@ -5,6 +5,13 @@ import sys
 import traceback
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 try:
     import sounddevice as sd
 except ModuleNotFoundError:
@@ -82,6 +89,36 @@ def _ensure_core_deps():
         "Tip: On Windows, make sure you install into the SAME Python you run.\n"
     )
     raise SystemExit(msg)
+
+
+def _get_style_from_memory(memory: dict | None) -> tuple[str, str]:
+    """
+    Returns (mode, mood).
+    Stored under preferences.assistant_mode / preferences.assistant_mood.
+    """
+    if not memory:
+        return ("butler", "calm")
+
+    prefs = memory.get("preferences", {}) if isinstance(memory, dict) else {}
+
+    mode_entry = prefs.get("assistant_mode")
+    mood_entry = prefs.get("assistant_mood")
+
+    mode = mode_entry.get("value") if isinstance(mode_entry, dict) else mode_entry
+    mood = mood_entry.get("value") if isinstance(mood_entry, dict) else mood_entry
+
+    mode = (str(mode or "").strip().lower() or "butler")
+    mood = (str(mood or "").strip().lower() or "calm")
+
+    valid_modes = {"girlfriend", "friend", "butler", "casual"}
+    valid_moods = {"calm", "playful", "romantic", "strict"}
+
+    if mode not in valid_modes:
+        mode = "butler"
+    if mood not in valid_moods:
+        mood = "calm"
+
+    return (mode, mood)
 
 
 def _get_api_key() -> str:
@@ -437,6 +474,44 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "set_mode",
+        "description": (
+            "Sets Kaizumi's conversation mode/persona. "
+            "Use when the user says things like: "
+            "'girlfriend mode', 'friend mode', 'butler mode', 'casual mode', "
+            "'be more like Batman's butler', 'switch your mode'. "
+            "This persists across sessions."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "mode": {
+                    "type": "STRING",
+                    "description": "One of: girlfriend | friend | butler | casual"
+                }
+            },
+            "required": ["mode"]
+        }
+    },
+    {
+        "name": "set_mood",
+        "description": (
+            "Sets Kaizumi's mood/energy within the current mode. "
+            "Use when the user asks for calmer, more playful, more romantic, or stricter tone. "
+            "This persists across sessions."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "mood": {
+                    "type": "STRING",
+                    "description": "One of: calm | playful | romantic | strict"
+                }
+            },
+            "required": ["mood"]
+        }
+    },
+    {
         "name": "save_memory",
         "description": (
             "Save an important personal fact about the user to long-term memory. "
@@ -521,6 +596,7 @@ class JarvisLive:
 
         memory     = load_memory()
         mem_str    = format_memory_for_prompt(memory)
+        mode, mood = _get_style_from_memory(memory)
         sys_prompt = _load_system_prompt()
 
         now      = datetime.now()
@@ -531,9 +607,17 @@ class JarvisLive:
             f"Use this to calculate exact times for reminders.\n\n"
         )
 
+        style_ctx = (
+            "[ASSISTANT MODE & MOOD]\n"
+            f"Mode: {mode}\n"
+            f"Mood: {mood}\n"
+            "Follow the mode/mood rules from the system prompt.\n\n"
+        )
+
         parts = [time_ctx]
         if mem_str:
             parts.append(mem_str)
+        parts.append(style_ctx)
         parts.append(sys_prompt)
 
         return types.LiveConnectConfig(
@@ -572,6 +656,39 @@ class JarvisLive:
             return types.FunctionResponse(
                 id=fc.id, name=name,
                 response={"result": "ok", "silent": True}
+            )
+
+        # ── set_mode / set_mood: persist style across sessions ───────────────
+        if name == "set_mode":
+            mode = str(args.get("mode", "")).strip().lower()
+            valid = {"girlfriend", "friend", "butler", "casual"}
+            if mode not in valid:
+                return types.FunctionResponse(
+                    id=fc.id, name=name,
+                    response={"result": f"Invalid mode '{mode}'. Use: girlfriend, friend, butler, casual."}
+                )
+            update_memory({"preferences": {"assistant_mode": {"value": mode}}})
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": f"Mode set to: {mode}."}
+            )
+
+        if name == "set_mood":
+            mood = str(args.get("mood", "")).strip().lower()
+            valid = {"calm", "playful", "romantic", "strict"}
+            if mood not in valid:
+                return types.FunctionResponse(
+                    id=fc.id, name=name,
+                    response={"result": f"Invalid mood '{mood}'. Use: calm, playful, romantic, strict."}
+                )
+            update_memory({"preferences": {"assistant_mood": {"value": mood}}})
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": f"Mood set to: {mood}."}
             )
 
         loop   = asyncio.get_event_loop()

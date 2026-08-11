@@ -120,24 +120,29 @@ def should_extract_memory(user_text: str, jarvis_text: str, api_key: str) -> boo
     Öncekinden daha geniş kriterler — favori şeyler, projeler, arkadaşlar da dahil.
     """
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
 
         # Her iki tarafı da gönder — Kaizumi'nin söyledikleri de bilgi içerebilir
         combined = f"User: {user_text[:300]}\nKaizumi: {jarvis_text[:200]}"
 
-        check = model.generate_content(
-            f"Does this conversation contain ANY of the following?\n"
-            f"- Personal facts (name, age, city, job, birthday, nationality)\n"
-            f"- Preferences or favorites (food, color, music, sport, game, film, book, etc.)\n"
-            f"- Active projects or goals the user is working on\n"
-            f"- People in the user's life (friends, family, partner, colleagues)\n"
-            f"- Things the user wants to do or buy in the future\n"
-            f"- Any other fact worth remembering long-term\n\n"
-            f"Reply only YES or NO.\n\nConversation:\n{combined}"
+        prompt = (
+            "Does this conversation contain ANY of the following?\n"
+            "- Personal facts (name, age, city, job, birthday, nationality)\n"
+            "- Preferences or favorites (food, color, music, sport, game, film, book, etc.)\n"
+            "- Active projects or goals the user is working on\n"
+            "- People in the user's life (friends, family, partner, colleagues)\n"
+            "- Things the user wants to do or buy in the future\n"
+            "- Any other fact worth remembering long-term\n\n"
+            "Reply only YES or NO.\n\nConversation:\n"
+            f"{combined}"
         )
-        return "YES" in check.text.upper()
+        check = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+        )
+        return "YES" in (check.text or "").upper()
     except Exception as e:
         print(f"[Memory] ⚠️ Stage1 check failed: {e}")
         return False
@@ -148,41 +153,47 @@ def extract_memory(user_text: str, jarvis_text: str, api_key: str) -> dict:
     Stage 2: Detaylı çıkarım. Her iki tarafı da analiz eder.
     """
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
 
         combined = f"User: {user_text[:500]}\nKaizumi: {jarvis_text[:300]}"
 
-        raw = model.generate_content(
-            f"Extract ALL memorable personal facts from this conversation. Any language.\n"
-            f"Return ONLY valid JSON. Use {{}} if truly nothing is worth saving.\n\n"
-            f"Category guide:\n"
-            f"  identity      → name, age, birthday, city, country, job, school, nationality, language\n"
-            f"  preferences   → ANY favorite or preferred thing:\n"
-            f"                  favorite_food, favorite_color, favorite_music, favorite_film,\n"
-            f"                  favorite_game, favorite_sport, favorite_book, favorite_artist,\n"
-            f"                  favorite_country, hobbies, interests, dislikes, etc.\n"
-            f"  projects      → projects being built, ongoing work, goals, ideas in progress\n"
-            f"                  (e.g. kaizumi: 'Building a personal AI assistant')\n"
-            f"  relationships → people mentioned: friends, family, partner, colleagues\n"
-            f"                  (e.g. best_friend_ali: 'Best friend, met in university')\n"
-            f"  wishes        → future plans, things to buy, travel plans, dreams\n"
-            f"  notes         → anything else worth remembering (habits, schedule, etc.)\n\n"
-            f"IMPORTANT:\n"
-            f"- Be LIBERAL: if something MIGHT be worth remembering, include it.\n"
-            f"- Extract from BOTH user and Kaizumi turns.\n"
-            f"- Skip: weather, reminders, search results, one-time commands.\n"
-            f"- Use concise English values regardless of conversation language.\n\n"
-            f"Format:\n"
-            f'{{"identity":{{"name":{{"value":"Ali"}}}},\n'
-            f' "preferences":{{"favorite_color":{{"value":"blue"}}, "hobby":{{"value":"gaming"}}}},\n'
-            f' "projects":{{"kaizumi":{{"value":"Personal AI assistant on Windows"}}}},\n'
-            f' "relationships":{{"friend_yusuf":{{"value":"close friend"}}}},\n'
-            f' "wishes":{{"buy_guitar":{{"value":"wants an acoustic guitar"}}}},\n'
-            f' "notes":{{"works_at_night":{{"value":"usually active late at night"}}}}}}\n\n'
+        prompt = (
+            "Extract ALL memorable personal facts from this conversation. Any language.\n"
+            "Return ONLY valid JSON. Use {} if truly nothing is worth saving.\n\n"
+            "Category guide:\n"
+            "  identity      → name, age, birthday, city, country, job, school, nationality, language\n"
+            "  preferences   → ANY favorite or preferred thing:\n"
+            "                  favorite_food, favorite_color, favorite_music, favorite_film,\n"
+            "                  favorite_game, favorite_sport, favorite_book, favorite_artist,\n"
+            "                  favorite_country, hobbies, interests, dislikes, etc.\n"
+            "  projects      → projects being built, ongoing work, goals, ideas in progress\n"
+            "                  (e.g. kaizumi: 'Building a personal AI assistant')\n"
+            "  relationships → people mentioned: friends, family, partner, colleagues\n"
+            "                  (e.g. best_friend_ali: 'Best friend, met in university')\n"
+            "  wishes        → future plans, things to buy, travel plans, dreams\n"
+            "  notes         → anything else worth remembering (habits, schedule, etc.)\n\n"
+            "IMPORTANT:\n"
+            "- Be LIBERAL: if something MIGHT be worth remembering, include it.\n"
+            "- Extract from BOTH user and Kaizumi turns.\n"
+            "- Skip: weather, reminders, search results, one-time commands.\n"
+            "- Use concise English values regardless of conversation language.\n\n"
+            "Format:\n"
+            '{"identity":{"name":{"value":"Ali"}},\n'
+            ' "preferences":{"favorite_color":{"value":"blue"}, "hobby":{"value":"gaming"}},\n'
+            ' "projects":{"kaizumi":{"value":"Personal AI assistant on Windows"}},\n'
+            ' "relationships":{"friend_yusuf":{"value":"close friend"}},\n'
+            ' "wishes":{"buy_guitar":{"value":"wants an acoustic guitar"}},\n'
+            ' "notes":{"works_at_night":{"value":"usually active late at night"}}}\n\n'
             f"Conversation:\n{combined}\n\nJSON:"
-        ).text.strip()
+        )
+
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+        )
+        raw = (resp.text or "").strip()
 
         import re
         raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
