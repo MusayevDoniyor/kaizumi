@@ -66,13 +66,17 @@ computer_settings
   value: string (optional)
 
 computer_control
-  action: "type" | "click" | "hotkey" | "press" | "scroll" | "screenshot" | "screen_find" | "screen_click" (required)
+  action: "type" | "click" | "hotkey" | "press" | "scroll" | "screenshot" | "screen_find" | "screen_click" | "list_windows" | "focus_window" (required)
   text: string (for type)
   x, y: int (for click)
   keys: string (for hotkey, e.g. "ctrl+c")
   key: string (for press)
   direction: "up" | "down" (for scroll)
   description: string (for screen_find/screen_click)
+  title: string (for focus_window)
+
+system_status
+  focus: "overview" | "battery" | "cpu" | "memory" | "disk" | "network" | "processes" | "uptime" (optional, default: overview)
 
 screen_process
   text: string (required) — what to analyze or ask about the screen

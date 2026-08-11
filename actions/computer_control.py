@@ -296,6 +296,39 @@ def _focus_window(title: str) -> str:
     return "Window focus only supported on Windows"
 
 
+def _list_windows() -> str:
+    """Enumerates open top-level window titles (Windows)."""
+    if platform.system() != "Windows":
+        return "Window listing only supported on Windows"
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        titles = []
+        skip = {"", "Program Manager", "Default IME"}
+
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+        @EnumWindowsProc
+        def _enum(hwnd, _):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length == 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            title = buf.value.strip()
+            if title and title not in skip:
+                titles.append(title)
+            return True
+
+        user32.EnumWindows(_enum, None)
+        titles = list(dict.fromkeys(titles))
+        return "Open windows: " + " | ".join(titles[:15]) if titles else "No windows detected."
+    except Exception as e:
+        return f"Could not list windows: {e}"
+
+
 def _select_all() -> str:
     return _hotkey("ctrl", "a")
 
@@ -511,6 +544,9 @@ def computer_control(
 
         elif action == "focus_window":
             return _focus_window(parameters.get("title", ""))
+
+        elif action in ("list_windows", "windows", "what_is_open"):
+            return _list_windows()
 
         elif action == "screen_size":
             return _get_screen_size()

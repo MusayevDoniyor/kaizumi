@@ -2,9 +2,12 @@
 # Kaizumi — Cross-Platform App Launcher
 
 import time
+import os
+import re
 import subprocess
 import platform
 import shutil
+from pathlib import Path
 
 try:
     import psutil
@@ -80,7 +83,101 @@ def _is_running(app_name: str) -> bool:
     return False
 
 
+def _start_menu_shortcuts() -> list[Path]:
+    """All .lnk files from the user + system Start Menu programs folders."""
+    dirs = []
+    for env in ("APPDATA", "PROGRAMDATA"):
+        base = os.environ.get(env)
+        if base:
+            dirs.append(Path(base) / "Microsoft" / "Windows" / "Start Menu" / "Programs")
+    links = []
+    for d in dirs:
+        if d.exists():
+            try:
+                links.extend(p for p in d.rglob("*.lnk") if p.is_file())
+            except Exception:
+                pass
+    return links
+
+def _registry_app_paths() -> list[tuple[str, str]]:
+    """(DisplayName, InstallLocation) from Uninstall registry keys."""
+    result = []
+    try:
+        import winreg
+    except ImportError:
+        return result
+
+    keys = [
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_CURRENT_USER,  r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ]
+    for hive, path in keys:
+        try:
+            with winreg.OpenKey(hive, path) as root:
+                for i in range(winreg.QueryInfoKey(root)[0]):
+                    try:
+                        sub = winreg.EnumKey(root, i)
+                        with winreg.OpenKey(root, sub) as k:
+                            name = winreg.QueryValueEx(k, "DisplayName")[0]
+                            loc  = ""
+                            try:
+                                loc = winreg.QueryValueEx(k, "InstallLocation")[0]
+                            except OSError:
+                                pass
+                            if name:
+                                result.append((name, loc))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return result
+
+def _find_registry_exe(app_name: str) -> str | None:
+    app_lower = app_name.lower().strip()
+    for name, loc in _registry_app_paths():
+        if app_lower in name.lower():
+            if loc and Path(loc).is_dir():
+                for exe in Path(loc).iterdir():
+                    if exe.suffix.lower() == ".exe" and app_lower in exe.stem.lower():
+                        return str(exe)
+    return None
+
+def _launch_start_menu(app_name: str) -> bool:
+    """Launch via Start Menu .lnk — the most reliable Windows path."""
+    app_lower = app_name.lower().strip()
+    for link in _start_menu_shortcuts():
+        stem_lower = link.stem.lower()
+        if app_lower == stem_lower or (app_lower in stem_lower and len(app_lower) > 2):
+            try:
+                os.startfile(str(link))
+                return True
+            except Exception:
+                continue
+    return False
+
 def _launch_windows(app_name: str) -> bool:
+    if _launch_start_menu(app_name):
+        time.sleep(1.0)
+        return True
+
+    exe = _find_registry_exe(app_name)
+    if exe:
+        try:
+            subprocess.Popen([exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+            return True
+        except Exception:
+            pass
+
+    # ms-settings: / shell: protocol shortcuts
+    try:
+        subprocess.Popen(["start", "", app_name], shell=True)
+        time.sleep(1.0)
+        return True
+    except Exception:
+        pass
+
     try:
         import pyautogui
         pyautogui.PAUSE = 0.1

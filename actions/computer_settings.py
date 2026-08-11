@@ -92,23 +92,73 @@ def volume_set(value: int):
         subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{value}%"])
         return
 
+def _win_brightness_get() -> int:
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
+        )
+        val = out.stdout.strip()
+        return int(val) if val.isdigit() else -1
+    except Exception as e:
+        print(f"[Settings] ⚠️ Brightness get failed: {e}")
+        return -1
+
+def _win_brightness_set(percent: int) -> bool:
+    percent = max(0, min(100, int(percent)))
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{percent})"],
+            capture_output=True, timeout=10
+        )
+        return True
+    except Exception as e:
+        print(f"[Settings] ⚠️ Brightness set failed: {e}")
+        return False
+
 def brightness_up():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "a")
-        time.sleep(0.3)
+        current = _win_brightness_get()
+        if current >= 0:
+            _win_brightness_set(current + 10)
+            return
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e", "tell application \"System Events\" to key code 144"])
+        return
     else:
         subprocess.run(["brightnessctl", "set", "+10%"])
+        return
+    pyautogui.hotkey("win", "a")
+    time.sleep(0.3)
 
 def brightness_down():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "a")
-        time.sleep(0.3)
+        current = _win_brightness_get()
+        if current >= 0:
+            _win_brightness_set(current - 10)
+            return
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e", "tell application \"System Events\" to key code 145"])
+        return
     else:
         subprocess.run(["brightnessctl", "set", "10%-"])
+        return
+    pyautogui.hotkey("win", "a")
+    time.sleep(0.3)
+
+def brightness_set(percent: int):
+    if _OS == "Windows":
+        if _win_brightness_set(percent):
+            return
+    elif _OS == "Darwin":
+        subprocess.run(["osascript", "-e", f"set brightness {percent}"])
+        return
+    else:
+        subprocess.run(["brightnessctl", "set", f"{percent}%"])
+        return
+    raise RuntimeError("Could not set brightness via native API")
 
 
 def close_app():
@@ -350,22 +400,132 @@ def shutdown_computer():
     else:
         subprocess.run(["sudo", "shutdown", "-h", "now"])
 
+def _win_dark_mode(set_dark: bool) -> bool:
+    value = "0" if set_dark else "1"
+    cmd = (
+        f"Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' "
+        f"-Name AppsUseLightTheme -Value {value}; "
+        f"Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' "
+        f"-Name SystemUsesLightTheme -Value {value}"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", cmd],
+            capture_output=True, timeout=15
+        )
+        return True
+    except Exception as e:
+        print(f"[Settings] ⚠️ Dark mode failed: {e}")
+        return False
+
+def _win_dark_mode_current() -> bool | None:
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' -Name AppsUseLightTheme | Select-Object -ExpandProperty AppsUseLightTheme"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
+        )
+        val = out.stdout.strip()
+        if val in ("0", "1"):
+            return val == "0"
+    except Exception as e:
+        print(f"[Settings] ⚠️ Dark mode read failed: {e}")
+    return None
+
 def dark_mode():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "a")
-        time.sleep(0.3)
+        current = _win_dark_mode_current()
+        if current is not None:
+            _win_dark_mode(not current)
+            return
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e",
             'tell app "System Events" to tell appearance preferences to set dark mode to not dark mode'])
+        return
+    else:
+        subprocess.run(["gsettings", "set", "org.gnome.desktop.interface", "color-scheme", "prefer-dark"])
+        return
+    pyautogui.hotkey("win", "a")
+    time.sleep(0.3)
+
+def _win_wifi_interface() -> str:
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+             "(Get-NetAdapter | Where-Object { $_.InterfaceDescription -match 'Wireless|Wi-Fi|WiFi|WLAN|802.11' }).Name"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
+        )
+        names = [n.strip() for n in out.stdout.splitlines() if n.strip()]
+        if names:
+            return names[0]
+    except Exception as e:
+        print(f"[Settings] ⚠️ WiFi iface detect failed: {e}")
+    return ""
+
+def _win_wifi_state(iface: str) -> str:
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+             f"(Get-NetAdapter -Name '{iface}').Status"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
+        )
+        status = out.stdout.strip().lower()
+        if "disabled" in status:
+            return "disabled"
+        if status in ("up", "connected", "enabled"):
+            return "enabled"
+    except Exception as e:
+        print(f"[Settings] ⚠️ WiFi state failed: {e}")
+    return ""
 
 def toggle_wifi():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "a")
-        time.sleep(0.3)
+        iface = _win_wifi_interface()
+        if iface:
+            state = _win_wifi_state(iface)
+            if state:
+                _win_wifi_set(state == "disabled")
+            return
     elif _OS == "Darwin":
         subprocess.run(["networksetup", "-setairportpower", "en0", "toggle"])
+        return
     else:
         subprocess.run(["nmcli", "radio", "wifi"])
+        return
+    pyautogui.hotkey("win", "a")
+    time.sleep(0.3)
+
+def _win_wifi_set(enable: bool) -> str:
+    iface = _win_wifi_interface()
+    if not iface:
+        return "No Wi-Fi adapter found, sir."
+    state = _win_wifi_state(iface)
+    if (enable and state == "enabled") or (not enable and state == "disabled"):
+        return f"Wi-Fi is already {'enabled' if enable else 'disabled'}."
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+             f"Disable-NetAdapter -Name '{iface}' -Confirm:$false"
+             if not enable else
+             f"[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+             f"Enable-NetAdapter -Name '{iface}' -Confirm:$false"],
+            capture_output=True, timeout=20
+        )
+        return f"Wi-Fi turned {'on' if enable else 'off'}."
+    except Exception as e:
+        return f"Could not toggle Wi-Fi: {e}"
+
+def wifi_status() -> str:
+    if _OS != "Windows":
+        return "WiFi status query is only supported on Windows."
+    iface = _win_wifi_interface()
+    if not iface:
+        return "No Wi-Fi adapter found."
+    state = _win_wifi_state(iface)
+    return f"Wi-Fi is {state} on interface '{iface}'."
 
 ACTION_MAP = {
     "volume_up":               volume_up,
@@ -390,6 +550,8 @@ ACTION_MAP = {
     "dimmer":                  brightness_down,
     "dim_screen":              brightness_down,
     "brighten_screen":         brightness_up,
+    "brightness_set":          brightness_set,
+    "set_brightness":          brightness_set,
     "sleep_display":           sleep_display,
     "turn_off_screen":         sleep_display,
     "screen_off":              sleep_display,
@@ -460,6 +622,9 @@ ACTION_MAP = {
     "toggle_wifi":             toggle_wifi,
     "wifi":                    toggle_wifi,
     "wifi_toggle":             toggle_wifi,
+    "wifi_status":             wifi_status,
+    "wifi_on":                 lambda: _win_wifi_set(True) if _OS == "Windows" else toggle_wifi(),
+    "wifi_off":                lambda: _win_wifi_set(False) if _OS == "Windows" else toggle_wifi(),
     "focus_search":            focus_search,
     "address_bar":             focus_search,
     "url_bar":                 focus_search,
@@ -516,7 +681,7 @@ def _detect_action(description: str) -> dict:
     genai.configure(api_key=_get_api_key())
     model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
-    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, type_text, write_on_screen, reload_n, press_key"
+    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, brightness_set, type_text, write_on_screen, reload_n, press_key"
 
     prompt = f"""The user wants to control their computer. Detect their intent.
 
@@ -557,10 +722,16 @@ Examples:
 - "parlaklığı artır" → {{"action": "brightness_up", "value": null}}
 - "parlaklığı azalt" → {{"action": "brightness_down", "value": null}}
 - "increase brightness" → {{"action": "brightness_up", "value": null}}
+- "set brightness to 70" → {{"action": "brightness_set", "value": 70}}
+- "parlaklığı 70 yap" → {{"action": "brightness_set", "value": 70}}
+- "wifi'yi aç" → {{"action": "wifi_on", "value": null}}
+- "wifi'yi kapat" → {{"action": "wifi_off", "value": null}}
+- "turn wifi on" → {{"action": "wifi_on", "value": null}}
+- "turn wifi off" → {{"action": "wifi_off", "value": null}}
+- "is wifi on" → {{"action": "wifi_status", "value": null}}
 - "wifi'yi aç" → {{"action": "toggle_wifi", "value": null}}
 - "toggle wifi" → {{"action": "toggle_wifi", "value": null}}
 - "masaüstünü göster" → {{"action": "show_desktop", "value": null}}
-- "show desktop" → {{"action": "show_desktop", "value": null}}
 - "yeni sekme aç" → {{"action": "new_tab", "value": null}}
 - "sekmeyi kapat" → {{"action": "close_tab", "value": null}}
 - "geri git" → {{"action": "go_back", "value": null}}
@@ -636,6 +807,21 @@ def computer_settings(
             return f"Volume set to {value}%."
         except Exception as e:
             return f"Could not set volume: {e}"
+
+    if action in ("brightness_set", "set_brightness", "brightness"):
+        if action == "brightness" and value is None:
+            return "Brightness up or down? Say 'brightness up' or 'brightness down', sir."
+        try:
+            brightness_set(int(value or 50))
+            return f"Brightness set to {value}%."
+        except Exception as e:
+            return f"Could not set brightness: {e}"
+
+    if action == "wifi_status":
+        return wifi_status()
+
+    if action in ("wifi_on", "wifi_off"):
+        return _win_wifi_set(action == "wifi_on") if _OS == "Windows" else toggle_wifi() or f"{action} toggled."
 
     if action in ("type_text", "write_on_screen", "type", "write"):
         text = str(value or params.get("text", ""))

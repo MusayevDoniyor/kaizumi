@@ -236,6 +236,10 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         from actions.computer_control import computer_control
         return computer_control(parameters=parameters, player=None) or "Done."
 
+    elif tool == "system_status":
+        from actions.system_status import system_status
+        return system_status(parameters=parameters, player=None) or "Done."
+
     elif tool == "generated_code":
         # Safety-first: do not execute LLM-generated arbitrary code by default.
         # Keep the helper available in codebase, but require implementing a safer sandbox/approval flow first.

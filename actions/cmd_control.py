@@ -225,7 +225,6 @@ def cmd_control(
 
     if visible:
         _run_visible(command)
-        output = _run_silent(command)
-        return f"Terminal opened.\n\nOutput:\n{output}"
+        return f"Terminal opened with command: {command[:80]}"
     else:
         return _run_silent(command)

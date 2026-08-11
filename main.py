@@ -47,6 +47,7 @@ from actions.dev_agent         import dev_agent
 from actions.web_search        import web_search as web_search_action
 from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
+from actions.system_status     import system_status
 
 
 def get_base_dir():
@@ -474,6 +475,25 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "system_status",
+        "description": (
+            "Reports real-time computer status: battery, CPU, memory/RAM, disk/storage, "
+            "network/WiFi, system uptime, and top running processes. "
+            "Use when the user asks about system health, performance, battery, storage space, "
+            "internet connection, or what's running on the computer."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "focus": {
+                    "type": "STRING",
+                    "description": "Optional focus area: overview | battery | cpu | memory | disk | network | processes | uptime. Default: overview"
+                }
+            },
+            "required": []
+        }
+    },
+    {
         "name": "set_mode",
         "description": (
             "Sets Kaizumi's conversation mode/persona. "
@@ -766,6 +786,10 @@ class JarvisLive:
             elif name == "computer_control":
                 r = await loop.run_in_executor(None, lambda: computer_control(parameters=args, player=self.ui))
                 result = r or "Done."
+
+            elif name == "system_status":
+                r = await loop.run_in_executor(None, lambda: system_status(parameters=args, player=self.ui))
+                result = r or "System status retrieved."
 
             elif name == "game_updater":
                 r = await loop.run_in_executor(None, lambda: game_updater(parameters=args, player=self.ui, speak=self.speak))
