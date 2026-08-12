@@ -226,12 +226,12 @@ class VisionService:
         mp_image = MPImage(image_format=MPImageFormat.SRGB, data=rgb)
 
         res = self._holistic.detect_for_video(mp_image, ts * 20)
-        pose = res.pose_landmarks[0] if res.pose_landmarks else None
+        pose = res.pose_landmarks if res.pose_landmarks else None
         hands = []
         if res.right_hand_landmarks:
-            hands.append(res.right_hand_landmarks[0])
+            hands.append(res.right_hand_landmarks)
         if res.left_hand_landmarks:
-            hands.append(res.left_hand_landmarks[0])
+            hands.append(res.left_hand_landmarks)
 
         if mode == "gesture":
             self._handle_gesture(hands)
@@ -277,7 +277,9 @@ class VisionService:
         hand = hands[0]
         idx = hand[HAND_INDEX_TIP]
         scr_w, scr_h = pyautogui.size()
-        x = int(idx.x * scr_w)
+        # Kamera mirror ko'rgani uchun x ni teskari qilish:
+        # barmoq chapga yursa kursor ham chapga yurishi kerak.
+        x = int((1.0 - idx.x) * scr_w)
         y = int(idx.y * scr_h)
         try:
             pyautogui.moveTo(x, y, duration=0.05)
@@ -409,12 +411,12 @@ class VisionService:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = MPImage(image_format=MPImageFormat.SRGB, data=rgb)
             res = det.detect(mp_image)
-            pose  = res.pose_landmarks[0] if res.pose_landmarks else None
+            pose  = res.pose_landmarks if res.pose_landmarks else None
             hands = []
             if res.right_hand_landmarks:
-                hands.append(res.right_hand_landmarks[0])
+                hands.append(res.right_hand_landmarks)
             if res.left_hand_landmarks:
-                hands.append(res.left_hand_landmarks[0])
+                hands.append(res.left_hand_landmarks)
             desc = []
             if pose:
                 desc.append("a person is in frame")
@@ -437,6 +439,7 @@ def vision_gesture(
     response=None,
     player=None,
     session_memory=None,
+    speak=None,
 ) -> str:
     """Control the full-body vision service.
     action: start | stop | face_count | qr | snapshot | status
@@ -445,7 +448,7 @@ def vision_gesture(
     action     = str(params.get("action", "status")).lower().strip()
     mode       = str(params.get("mode", "gesture")).lower().strip()
 
-    _service.configure(player=player)
+    _service.configure(player=player, speak=speak)
 
     if action == "start":
         return _service.start(mode)
