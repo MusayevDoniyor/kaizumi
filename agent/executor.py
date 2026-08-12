@@ -266,6 +266,18 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         from actions.flight_finder import flight_finder
         return flight_finder(parameters=parameters, player=None, speak=speak) or "Done."
 
+    elif tool == "notify":
+        from actions.notifications import notify
+        return notify(parameters=parameters, player=None) or "Done."
+
+    elif tool == "daily_briefing":
+        from actions.daily_briefing import daily_briefing
+        return daily_briefing(parameters=parameters, player=None) or "Done."
+
+    elif tool == "wake_word":
+        from actions.wake_word import wake_word
+        return wake_word(parameters=parameters, player=None) or "Done."
+
     else:
         raise RuntimeError(f"Unknown tool '{tool}'.")
 

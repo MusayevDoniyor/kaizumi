@@ -2,6 +2,7 @@ import asyncio
 import threading
 import json
 import sys
+import os
 import traceback
 from pathlib import Path
 
@@ -51,6 +52,9 @@ from actions.system_status     import system_status
 from actions.task_manager      import task_manager
 from actions.clipboard         import clipboard_action
 from actions.vision_gesture    import vision_gesture
+from actions.daily_briefing    import daily_briefing
+from actions.notifications     import notify
+from actions.wake_word         import _service as wake_service
 
 
 def get_base_dir():
@@ -280,7 +284,9 @@ TOOL_DECLARATIONS = [
         "description": (
             "Controls the computer: volume, brightness, window management, keyboard shortcuts, "
             "typing text on screen, closing apps, fullscreen, dark mode, WiFi, restart, shutdown, "
-            "scrolling, tab management, zoom, screenshots, lock screen, refresh/reload page. "
+            "scrolling, tab management, zoom, screenshots, lock screen, refresh/reload page, "
+            "media playback (play/pause/next/previous), and per-app volume "
+            "(e.g. 'mute Discord', 'lower Spotify only'). "
             "Use for ANY single computer control command. NEVER route to agent_task."
         ),
         "parameters": {
@@ -288,7 +294,8 @@ TOOL_DECLARATIONS = [
             "properties": {
                 "action":      {"type": "STRING", "description": "The action to perform"},
                 "description": {"type": "STRING", "description": "Natural language description of what to do"},
-                "value":       {"type": "STRING", "description": "Optional value: volume level, text to type, etc."}
+                "value":       {"type": "STRING", "description": "Optional value: volume level, text to type, etc."},
+                "app_name":    {"type": "STRING", "description": "App name for per-app volume (e.g. 'Spotify' for app_volume/mute_app)"}
             },
             "required": []
         }
@@ -317,13 +324,13 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "file_controller",
-        "description": "Manages files and folders: list, create, delete, move, copy, rename, read, write, find, disk usage.",
+        "description": "Manages files and folders: list, create, delete, move, copy, rename, read, write, find, disk usage, zip/compress, unzip/extract archives.",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
+                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info | zip | compress | unzip | extract"},
                 "path":        {"type": "STRING", "description": "File/folder path or shortcut: desktop, downloads, documents, home"},
-                "destination": {"type": "STRING", "description": "Destination path for move/copy"},
+                "destination": {"type": "STRING", "description": "Destination path for move/copy/zip/unzip"},
                 "new_name":    {"type": "STRING", "description": "New name for rename"},
                 "content":     {"type": "STRING", "description": "Content for create_file/write"},
                 "name":        {"type": "STRING", "description": "File name to search for"},
@@ -635,12 +642,63 @@ TOOL_DECLARATIONS = [
             "required": ["action"]
         }
     },
+    {
+        "name": "notify",
+        "description": (
+            "Sends a Windows toast notification popup (title + message). "
+            "Use when the user asks to notify/alert me at a moment, pop a notification, "
+            "or remind me with a popup, e.g. 'notify me when the download finishes'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "message": {"type": "STRING", "description": "The notification message text (required)"},
+                "title":   {"type": "STRING", "description": "Optional title (default: Kaizumi)"}
+            },
+            "required": ["message"]
+        }
+    },
+    {
+        "name": "daily_briefing",
+        "description": (
+            "Morning briefing: today's date/time, weather for the user's city, "
+            "key facts remembered about them, and system status. "
+            "Use when the user says 'good morning', 'daily briefing', 'brief me', "
+            "or asks what's going on today."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "city": {"type": "STRING", "description": "Optional city for weather (defaults to saved memory)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "wake_word",
+        "description": (
+            "Controls the hands-free wake word listener ('Hey Kaizumi', "
+            "or 'Hey Jarvis' before you record your own). "
+            "When active, Kaizumi sleeps until the wake word is said, then listens. "
+            "'record' samples your voice and builds a 'Hey Kaizumi' reference. "
+            "Use when the user says 'activate wake word', 'record the wake word', "
+            "'listen for hey kaizumi', or any wake-word command."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "start | stop | status | record (default: status)"},
+                "clips":  {"type": "INTEGER", "description": "Number of clips to record for 'record' (default: 5)"}
+            },
+            "required": []
+        }
+    },
 ]
 
 
 class JarvisLive:
 
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: JarvisUI, remote_port: int | None = None):
         self.ui             = ui
         self.session        = None
         self.audio_in_queue = None
@@ -649,6 +707,103 @@ class JarvisLive:
         self._is_speaking   = False
         self._speaking_lock = threading.Lock()
         self.ui.on_text_command = self._on_text_command
+        self.remote_clients = set()
+        self.remote_port    = None
+
+        try:
+            wake_service.configure(on_detect=self._on_wake_detect)
+        except Exception:
+            pass
+
+    def _on_wake_detect(self):
+        """Excited when the wake word is heard — un-mute and listen."""
+        try:
+            self.ui.muted = False
+            self.ui.set_state("LISTENING")
+            self.ui.write_log("SYS: Wake word heard — listening.")
+        except Exception as e:
+            print(f"[WakeWord] ⚠️ {e}")
+
+    def attach_tray(self):
+        """Background tray icon + global hotkeys (optional deps)."""
+        try:
+            from actions import system_tray
+
+            def _on_ui(cb):
+                return lambda: self.ui.root.after(0, cb)
+
+            def _wake_active():
+                from actions.wake_word import _pick_engine
+                return _pick_engine()[1]._running
+
+            def _toggle_wake():
+                try:
+                    from actions.wake_word import _pick_engine
+                    from actions.kaizumi_wake import _matcher as kw_matcher
+                    name, eng = _pick_engine()
+                    if not eng.available:
+                        print("[Tray] ⚠️ Wake word engine not ready:", name)
+                        return
+                    if eng._running:
+                        r = eng.stop()
+                    else:
+                        eng.configure(on_detect=self._on_wake_detect)
+                        r = eng.start()
+                    print(f"[Tray] {r}")
+                    self.ui.write_log(f"SYS: {r}")
+                except Exception as e:
+                    print(f"[Tray] ⚠️ {e}")
+
+            def _hide_show():
+                state = self.ui.root.state()
+                if state in ("normal", "iconic"):
+                    self.ui.root.withdraw()
+                else:
+                    self.ui.root.deiconify()
+                    self.ui.root.lift()
+
+            def _brief():
+                if self._loop and self.session:
+                    self.speak("Give me today's morning briefing.")
+                print("[Tray] Briefing requested")
+
+            def _quit():
+                try:
+                    self.ui.root.after(0, self.ui.root.destroy)
+                except Exception:
+                    os._exit(0)
+
+            callbacks = {
+                "toggle_mute": _on_ui(self.ui._toggle_mute),
+                "toggle_wake": _toggle_wake,
+                "hide_show":   _hide_show,
+                "briefing":    _brief,
+                "quit":        _quit,
+            }
+
+            def menu_factory():
+                import pystray
+                return pystray.Menu(
+                    pystray.MenuItem(
+                        lambda: "🔇 Unmute" if self.ui.muted else "🔊 Mute (F4)",
+                        _on_ui(self.ui._toggle_mute),
+                    ),
+                    pystray.MenuItem(
+                        lambda: "😴 Stop Wake Word" if _wake_active() else "💤 Activate Wake Word",
+                        _toggle_wake,
+                    ),
+                    pystray.MenuItem("📋 Daily Briefing", _brief),
+                    pystray.MenuItem("👁 Hide/Show Window", _hide_show),
+                    pystray.Menu.SEPARATOR,
+                    pystray.MenuItem("🚪 Quit Kaizumi", _quit, default=True),
+                )
+
+            tray_ok   = system_tray.configure_icon(menu_factory)
+            hot_ok    = system_tray.register_hotkeys(callbacks)
+            print(f"[Tray] 🖥 Tray: {'on' if tray_ok else 'off'} | Hotkeys: {hot_ok} registered ({system_tray.available()})")
+        except Exception as e:
+            print(f"[Tray] ⚠️ Could not attach tray: {e}")
+            import traceback; traceback.print_exc()
 
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
@@ -890,6 +1045,19 @@ class JarvisLive:
                 r = await loop.run_in_executor(None, lambda: flight_finder(parameters=args, player=self.ui))
                 result = r or "Done."
 
+            elif name == "notify":
+                r = await loop.run_in_executor(None, lambda: notify(parameters=args, player=self.ui))
+                result = r or "Notification sent."
+
+            elif name == "daily_briefing":
+                r = await loop.run_in_executor(None, lambda: daily_briefing(parameters=args, player=self.ui))
+                result = r or "Daily briefing delivered."
+
+            elif name == "wake_word":
+                from actions.wake_word import wake_word as wake_word_action
+                r = await loop.run_in_executor(None, lambda: wake_word_action(parameters=args, player=self.ui))
+                result = r or "Done."
+
             else:
                 result = f"Unknown tool: {name}"
 
@@ -1021,6 +1189,14 @@ class JarvisLive:
                 chunk = await self.audio_in_queue.get()
                 self.set_speaking(True)
                 await asyncio.to_thread(stream.write, chunk)
+                if self.remote_clients:
+                    message = bytes(chunk)
+                    for ws in list(self.remote_clients):
+                        try:
+                            await ws.send(message)
+                        except Exception as e:
+                            print(f"[Play] ⚠️ remote send: {e}")
+                            self.remote_clients.discard(ws)
         except Exception as e:
             print(f"[KAIZUMI] ❌ Play: {e}")
             raise
@@ -1054,6 +1230,10 @@ class JarvisLive:
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: Kaizumi online.")
 
+                    if self.remote_port:
+                        from remote_bridge import start_bridge
+                        tg.create_task(start_bridge(self, self.remote_port))
+
                     tg.create_task(self._send_realtime())
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())
@@ -1073,9 +1253,21 @@ def main():
     _ensure_core_deps()
     ui = JarvisUI("face.png")
 
+    remote_port = None
+    args = sys.argv[1:]
+    if "--remote" in args:
+        remote_port = 8765
+    for i, a in enumerate(args):
+        if a in ("--remote-port", "--port") and i + 1 < len(args):
+            try:
+                remote_port = int(args[i + 1])
+            except ValueError:
+                pass
+
     def runner():
         ui.wait_for_api_key()
-        jarvis = JarvisLive(ui)
+        jarvis = JarvisLive(ui, remote_port=remote_port)
+        jarvis.attach_tray()
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:

@@ -51,10 +51,21 @@ browser_control
   direction: "up" | "down" (for scroll)
 
 file_controller
-  action: "write" | "create_file" | "read" | "list" | "delete" | "move" | "copy" | "find" | "disk_usage" (required)
+  action: "write" | "create_file" | "read" | "list" | "delete" | "move" | "copy" | "find" | "disk_usage" | "zip" | "unzip" (required)
   path: string — use "desktop" for Desktop folder
   name: string — filename
   content: string — file content (for write/create_file)
+  destination: string — target for move/copy/zip/unzip
+
+notify
+  message: string (required) — notification text
+  title: string (optional)
+
+daily_briefing
+  city: string (optional) — weather defaults to saved memory
+
+wake_word
+  action: "start" | "stop" | "status" (required) — hands-free 'Hey Jarvis' listener
 
 cmd_control
   task: string (required) — natural language description of what to do

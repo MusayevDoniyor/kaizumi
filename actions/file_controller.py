@@ -2,6 +2,7 @@
 # File management — create, delete, move, rename, list, find, organize
 
 import shutil
+import zipfile
 from pathlib import Path
 from datetime import datetime
 import send2trash
@@ -387,6 +388,44 @@ def get_file_info(path: str) -> str:
     except Exception as e:
         return f"Could not get file info: {e}"
 
+def _zip_path(source: Path, target: str) -> str:
+    try:
+        target_path = Path(target)
+        if source.is_dir():
+            if str(target).endswith(".zip"):
+                target_path = Path(target)
+            else:
+                target_path = Path(target) / (source.name + ".zip")
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        count = 0
+        with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            if source.is_dir():
+                for file in source.rglob("*"):
+                    if file.is_file():
+                        zf.write(file, file.relative_to(source.parent))
+                        count += 1
+            else:
+                zf.write(source, source.name)
+                count = 1
+        return f"Zipped {count} file(s) → {target_path}"
+    except Exception as e:
+        return f"Zip failed: {e}"
+
+
+def _unzip_path(archive: str, target: str) -> str:
+    try:
+        target_path = Path(target)
+        target_path.mkdir(parents=True, exist_ok=True)
+        count = 0
+        with zipfile.ZipFile(archive) as zf:
+            for member in zf.infolist():
+                zf.extract(member, target_path)
+                count += 1
+        return f"Extracted {count} item(s) → {target_path}"
+    except Exception as e:
+        return f"Unzip failed: {e}"
+
+
 def file_controller(
     parameters: dict,
     response=None,
@@ -469,6 +508,25 @@ def file_controller(
         elif action == "info":
             full = _full_path(path, name)
             result = get_file_info(full)
+
+        elif action in ("zip", "compress"):
+            source = _resolve_path(path)
+            target = parameters.get("destination", "") or str(source) + ".zip"
+            if not source.exists():
+                result = f"Path not found: {source}"
+            else:
+                zip_dir = source if source.is_dir() else source.parent
+                if parameters.get("destination"):
+                    target = _resolve_path(parameters.get("destination", "")) if source.is_dir() else source.parent / parameters.get("destination")
+                result = _zip_path(source, str(target))
+
+        elif action in ("unzip", "extract"):
+            archive = _resolve_path(path)
+            if parameters.get("destination"):
+                target = _resolve_path(parameters.get("destination"))
+            else:
+                target = archive.parent / archive.stem
+            result = _unzip_path(str(archive), str(target))
 
         else:
             result = f"Unknown action: '{action}'"

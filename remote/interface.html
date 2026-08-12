@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, user-scalable=no"
+    />
+    <title>Kaizumi · Remote</title>
+    <style>
+      :root {
+        --bg: #0a1220;
+        --panel: #101c30;
+        --cyan: #00d4ff;
+        --text: #e6f1ff;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, sans-serif;
+        min-height: 100vh;
+        padding: 16px;
+      }
+      h1 {
+        font-size: 20px;
+        margin-bottom: 4px;
+        color: var(--cyan);
+      }
+      .sub {
+        opacity: 0.7;
+        font-size: 13px;
+        margin-bottom: 18px;
+      }
+      .card {
+        background: var(--panel);
+        border-radius: 16px;
+        padding: 16px;
+        margin-top: 12px;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      button {
+        flex: 1;
+        padding: 14px;
+        border: none;
+        border-radius: 12px;
+        font-size: 16px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      #go {
+        background: var(--cyan);
+        color: #00131c;
+      }
+      #stop {
+        background: #ff3b5c;
+        color: #fff;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      #status {
+        font-size: 14px;
+        margin-top: 10px;
+        min-height: 20px;
+      }
+      #level {
+        height: 8px;
+        background: #0a1526;
+        border-radius: 4px;
+        overflow: hidden;
+        margin-top: 8px;
+      }
+      #bar {
+        height: 100%;
+        width: 0;
+        background: var(--cyan);
+        transition: width 0.1s;
+      }
+      input[type="text"] {
+        flex: 3;
+        padding: 12px;
+        border: none;
+        border-radius: 12px;
+        background: #0a1526;
+        color: var(--text);
+        font-size: 16px;
+      }
+      .dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+      .on {
+        background: #34d399;
+      }
+      .off {
+        background: #64748b;
+      }
+      #hint {
+        margin-top: 14px;
+        font-size: 12px;
+        opacity: 0.55;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Kaizumi</h1>
+    <div class="sub">JARVIS — phone voice bridge</div>
+
+    <div class="card">
+      <div id="status">
+        <span class="dot off" id="dot"></span>Disconnected. Tap
+        <b>Connect</b> and allow mic.
+      </div>
+      <div id="level"><div id="bar"></div></div>
+      <div class="row">
+        <button id="go">Connect</button>
+        <button id="stop" disabled>Disconnect</button>
+      </div>
+      <div class="row">
+        <input
+          type="text"
+          id="textIn"
+          placeholder="Type a command (optional)"
+          autocomplete="off"
+        />
+        <button
+          id="send"
+          disabled
+          style="flex: 1; background: #1e3a5f; color: #fff"
+        >
+          Send
+        </button>
+      </div>
+      <div id="hint">
+        Same WiFi, same PC. If mic is blocked, Chrome → this site → allow
+        microphone.<br />
+        Android tip: if mic won't start over plain HTTP, use
+        <b>adb reverse tcp:8765 tcp:8765</b> then open <b>localhost:8765</b>, or
+        add this IP to chrome://flags → "Insecure origins treated as secure".
+      </div>
+    </div>
+
+    <script>
+      "use strict";
+      const $id = (s) => document.getElementById(s);
+      const dot = $id("dot"),
+        statusEl = $id("status"),
+        barElb = $id("bar");
+      let ws = null,
+        inCtx = null,
+        outCtx = null,
+        stream = null,
+        sourceNode = null,
+        processor = null,
+        connected = false;
+
+      const WS_PROTO = location.protocol === "https:" ? "wss://" : "ws://";
+      const WS_PORT =
+        Number(window.__WS_PORT__) ||
+        (location.port ? Number(location.port) : 8765);
+      const WS_URL = WS_PROTO + location.hostname + ":" + WS_PORT + "/ws";
+
+      function setStatus(text, ok) {
+        statusEl.innerHTML = text;
+        dot.className = "dot " + (ok ? "on" : "off");
+      }
+      function setBar(level) {
+        barElb.style.width = Math.min(100, level * 140).toFixed(0) + "%";
+      }
+
+      /* ── resampler: convert input rate → 16000 PCM stereo-safe mono ── */
+      function makeResampler(srcRate, dstRate) {
+        const ratio = dstRate / srcRate;
+        let nextPos = 0,
+          last = 0;
+        return function (bufIn) {
+          const outLen = Math.floor(bufIn.length * ratio);
+          const out = new Float32Array(outLen);
+          for (let i = 0; i < outLen; i++) {
+            const pos = nextPos;
+            nextPos += srcRate / dstRate;
+            const i0 = Math.floor(pos),
+              i1 = Math.min(i0 + 1, bufIn.length - 1);
+            const frac = pos - i0;
+            out[i] = bufIn[i0] + (bufIn[i1] - bufIn[i0]) * frac;
+          }
+          nextPos -= bufIn.length;
+          return out;
+        };
+      }
+
+      /* ── send Float32 PCM chunk as int16 LE binary ── */
+      function sendPcm(float32) {
+        if (!ws || ws.readyState !== 1) return;
+        const n = float32.length;
+        const buf = new ArrayBuffer(n * 2);
+        const view = new DataView(buf);
+        for (let i = 0; i < n; i++) {
+          let s = Math.max(-1, Math.min(1, float32[i]));
+          view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+        }
+        ws.send(buf);
+      }
+
+      function pcm16ToFloat(buf) {
+        const i16 = new Int16Array(buf);
+        const out = new Float32Array(i16.length);
+        for (let i = 0; i < i16.length; i++) out[i] = i16[i] / 32768;
+        return out;
+      }
+
+      function playFloat32Audio(f32, sampleRate) {
+        try {
+          if (!outCtx) outCtx = new AudioContext();
+          if (outCtx.state === "suspended") outCtx.resume();
+          const src = outCtx.createBufferSource();
+          const buf = outCtx.createBuffer(1, f32.length, sampleRate);
+          buf.copyToChannel(f32, 0);
+          src.buffer = buf;
+          src.connect(outCtx.destination);
+          src.start();
+        } catch (e) {
+          console.error("play error", e);
+        }
+      }
+
+      async function connect() {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: { channelCount: 1, sampleRate: 16000 },
+          });
+          inCtx = new AudioContext({ sampleRate: 16000 });
+          await inCtx.resume();
+
+          const src = inCtx.createMediaStreamSource(stream);
+          const actualRate = inCtx.sampleRate;
+          const resample =
+            actualRate === 16000 ? (b) => b : makeResampler(actualRate, 16000);
+
+          processor = inCtx.createScriptProcessor
+            ? inCtx.createScriptProcessor(4096, 1, 1)
+            : null;
+          if (processor) {
+            processor.onaudioprocess = (e) => {
+              const lvl = e.inputBuffer.getChannelData(0);
+              let peak = 0;
+              for (let i = 0; i < lvl.length; i += 8) {
+                const v = Math.abs(lvl[i]);
+                if (v > peak) peak = v;
+              }
+              setBar(peak);
+              sendPcm(resample(lvl));
+            };
+            src.connect(processor);
+            processor.connect(inCtx.destination);
+          }
+          sourceNode = src;
+          connected = true;
+          $id("go").disabled = true;
+          $id("stop").disabled = false;
+          $id("send").disabled = false;
+          setStatus(
+            "<span class='dot on' style='margin-right:6px'></span>Microphone open (" +
+              actualRate +
+              " Hz). Connecting…",
+            true,
+          );
+          openSocket();
+        } catch (e) {
+          setStatus("Mic error: " + e.name + " — " + e.message, false);
+        }
+      }
+
+      function openSocket() {
+        ws = new WebSocket(WS_URL);
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () =>
+          setStatus(
+            "<span class='dot on' style='margin-right:6px'></span>Connected to Kaizumi. Start talking!",
+            true,
+          );
+        ws.onclose = () => {
+          ws = null;
+          if (connected) teardown("Disconnected.");
+        };
+        ws.onerror = (e) => setStatus("Connection error.", false);
+        ws.onmessage = (ev) => {
+          if (typeof ev.data === "string") {
+            setStatus(ev.data, true);
+          } else {
+            const f32 = pcm16ToFloat(ev.data);
+            if (outCtx) outCtx.resume();
+            playFloat32Audio(f32, 24000);
+          }
+        };
+      }
+
+      function sendText() {
+        const t = $id("textIn").value.trim();
+        if (!t || !ws || ws.readyState !== 1) return;
+        ws.send(JSON.stringify({ type: "text", text: t }));
+        $id("textIn").value = "";
+      }
+
+      function teardown(msg) {
+        connected = false;
+        if (processor) {
+          try {
+            processor.disconnect();
+          } catch (e) {}
+          processor = null;
+        }
+        if (sourceNode) {
+          try {
+            sourceNode.disconnect();
+          } catch (e) {}
+          sourceNode = null;
+        }
+        if (stream) {
+          stream.getTracks().forEach((t) => t.stop());
+          stream = null;
+        }
+        if (inCtx) {
+          try {
+            inCtx.close();
+          } catch (e) {}
+          inCtx = null;
+        }
+        $id("go").disabled = false;
+        $id("stop").disabled = true;
+        $id("send").disabled = true;
+        setStatus(
+          msg ||
+            "<span class='dot off' style='margin-right:6px'></span>Disconnected.",
+          false,
+        );
+      }
+
+      $id("go").onclick = connect;
+      $id("stop").onclick = () => {
+        if (ws) ws.close();
+        teardown();
+      };
+      $id("send").onclick = sendText;
+      $id("textIn").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sendText();
+      });
+    </script>
+  </body>
+</html>

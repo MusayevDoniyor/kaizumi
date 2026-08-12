@@ -21,3 +21,8 @@ send2trash
 youtube-transcript-api
 pywinauto
 mediapipe
+openwakeword
+winotify
+pystray
+keyboard
+websockets

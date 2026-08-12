@@ -118,6 +118,41 @@ def _win_brightness_set(percent: int) -> bool:
         print(f"[Settings] ⚠️ Brightness set failed: {e}")
         return False
 
+def app_volume(app_name: str, level: int | None = None) -> str:
+    """Per-app volume control on Windows. level=None → mute. level=0-100 → set %."""
+    if _OS != "Windows":
+        return "Per-app volume is only supported on Windows."
+    if not app_name:
+        return "No app name provided, sir."
+    try:
+        from pycaw.pycaw import AudioUtilities, IAudioSessionControl2
+        from comtypes import CLSCTX_ALL
+        sessions = AudioUtilities.GetAllSessions()
+        target = None
+        for sess in sessions:
+            try:
+                name = sess.Process and sess.Process.name().lower() or ""
+            except Exception:
+                name = ""
+            if app_name.lower() in name:
+                target = sess
+                break
+        if not target:
+            return f"Could not find app '{app_name}' playing audio, sir."
+        if level is None:
+            target.SimpleAudioVolume.SetMute(1, None)
+            return f"Muted {app_name}, sir."
+        target.SimpleAudioVolume.SetMasterVolume(level / 100.0, None)
+        target.SimpleAudioVolume.SetMute(0, None)
+        return f"{app_name} volume set to {level}%."
+    except Exception as e:
+        return f"App volume control failed: {e}"
+
+def media_play_pause():     pyautogui.press("playpause")
+def media_next():           pyautogui.press("nexttrack")
+def media_prev():           pyautogui.press("prevtrack")
+def media_stop():           pyautogui.press("stop")
+
 def brightness_up():
     if _OS == "Windows":
         current = _win_brightness_get()
@@ -669,6 +704,17 @@ ACTION_MAP = {
     "escape":                  press_escape,
     "press_escape":            press_escape,
     "cancel":                  press_escape,
+    "play_pause":              media_play_pause,
+    "playpause":               media_play_pause,
+    "toggle_media":            media_play_pause,
+    "next_track":              media_next,
+    "next_song":               media_next,
+    "skip":                    media_next,
+    "previous_track":          media_prev,
+    "previous_song":           media_prev,
+    "back_track":              media_prev,
+    "stop_music":              media_stop,
+    "media_stop":              media_stop,
 }
 
 def _detect_action(description: str) -> dict:
@@ -681,7 +727,7 @@ def _detect_action(description: str) -> dict:
     genai.configure(api_key=_get_api_key())
     model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
-    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, brightness_set, type_text, write_on_screen, reload_n, press_key"
+    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, brightness_set, app_volume, mute_app, type_text, write_on_screen, reload_n, press_key"
 
     prompt = f"""The user wants to control their computer. Detect their intent.
 
@@ -690,65 +736,19 @@ User said (in any language): "{description}"
 Available actions: {available}
 
 Return ONLY valid JSON:
-{{"action": "action_name", "value": null_or_value}}
+{{"action": "action_name", "value": null_or_value, "app_name": null_or_app_name}}
 
 Examples:
-- "turn up the volume" → {{"action": "volume_up", "value": null}}
-- "set volume to 60" → {{"action": "volume_set", "value": 60}}
-- "sesi 80 yap" → {{"action": "volume_set", "value": 80}}
-- "close the app" → {{"action": "close_app", "value": null}}
-- "uygulamayı kapat" → {{"action": "close_app", "value": null}}
-- "type hello world" → {{"action": "type_text", "value": "hello world"}}
-- "write good morning on screen" → {{"action": "write_on_screen", "value": "good morning"}}
-- "reload page 3 times" → {{"action": "reload_n", "value": 3}}
-- "tam ekran yap" → {{"action": "full_screen", "value": null}}
-- "sesi kıs" → {{"action": "volume_down", "value": null}}
-- "sesi aç" → {{"action": "volume_up", "value": null}}
-- "sustur" → {{"action": "mute", "value": null}}
-- "monte le son" → {{"action": "volume_up", "value": null}}
-- "ekranı kapat" → {{"action": "sleep_display", "value": null}}
-- "monitörü kapat" → {{"action": "sleep_display", "value": null}}
-- "turn off screen" → {{"action": "sleep_display", "value": null}}
-- "turn off monitor" → {{"action": "sleep_display", "value": null}}
-- "bilgisayarı yeniden başlat" → {{"action": "restart", "value": null}}
-- "restart the computer" → {{"action": "restart", "value": null}}
-- "bilgisayarı kapat" → {{"action": "shutdown", "value": null}}
-- "shut down" → {{"action": "shutdown", "value": null}}
-- "ekranı kilitle" → {{"action": "lock_screen", "value": null}}
-- "lock the screen" → {{"action": "lock_screen", "value": null}}
-- "küçült" → {{"action": "minimize", "value": null}}
-- "minimize the window" → {{"action": "minimize", "value": null}}
-- "büyüt" → {{"action": "maximize", "value": null}}
-- "parlaklığı artır" → {{"action": "brightness_up", "value": null}}
-- "parlaklığı azalt" → {{"action": "brightness_down", "value": null}}
-- "increase brightness" → {{"action": "brightness_up", "value": null}}
-- "set brightness to 70" → {{"action": "brightness_set", "value": 70}}
-- "parlaklığı 70 yap" → {{"action": "brightness_set", "value": 70}}
-- "wifi'yi aç" → {{"action": "wifi_on", "value": null}}
-- "wifi'yi kapat" → {{"action": "wifi_off", "value": null}}
-- "turn wifi on" → {{"action": "wifi_on", "value": null}}
-- "turn wifi off" → {{"action": "wifi_off", "value": null}}
-- "is wifi on" → {{"action": "wifi_status", "value": null}}
-- "wifi'yi aç" → {{"action": "toggle_wifi", "value": null}}
-- "toggle wifi" → {{"action": "toggle_wifi", "value": null}}
-- "masaüstünü göster" → {{"action": "show_desktop", "value": null}}
-- "yeni sekme aç" → {{"action": "new_tab", "value": null}}
-- "sekmeyi kapat" → {{"action": "close_tab", "value": null}}
-- "geri git" → {{"action": "go_back", "value": null}}
-- "ileri git" → {{"action": "go_forward", "value": null}}
-- "sayfayı yenile" → {{"action": "refresh_page", "value": null}}
-- "yakınlaştır" → {{"action": "zoom_in", "value": null}}
-- "uzaklaştır" → {{"action": "zoom_out", "value": null}}
-- "kaydet" → {{"action": "save", "value": null}}
-- "geri al" → {{"action": "undo", "value": null}}
-- "screenshot al" → {{"action": "screenshot", "value": null}}
-- "ekran görüntüsü al" → {{"action": "screenshot", "value": null}}
-- "aşağı kaydır" → {{"action": "scroll_down", "value": null}}
-- "yukarı kaydır" → {{"action": "scroll_up", "value": null}}
-- "karanlık mod" → {{"action": "dark_mode", "value": null}}
-- "press f5" → {{"action": "press_key", "value": "f5"}}
-- "enter'a bas" → {{"action": "enter", "value": null}}
-- "escape'e bas" → {{"action": "escape", "value": null}}
+- "turn up the volume" → {{"action": "volume_up", "value": null, "app_name": null}}
+- "set volume to 60" → {{"action": "volume_set", "value": 60, "app_name": null}}
+- "sesi 80 yap" → {{"action": "volume_set", "value": 80, "app_name": null}}
+- "mute spotify" → {{"action": "app_volume", "value": null, "app_name": "Spotify"}}
+- "lower discord volume to 20" → {{"action": "app_volume", "value": 20, "app_name": "Discord"}}
+- "discord'u sustur" → {{"action": "mute_app", "value": null, "app_name": "Discord"}}
+- "mute the game" → {{"action": "mute_app", "value": null, "app_name": "game"}}
+- "play the music" → {{"action": "play_pause", "value": null, "app_name": null}}
+- "skip to next song" → {{"action": "next_track", "value": null, "app_name": null}}
+- "pause the video" → {{"action": "play_pause", "value": null, "app_name": null}}
 
 IMPORTANT:
 - Always return one of the available actions listed above.
@@ -792,6 +792,8 @@ def computer_settings(
         raw_action = detected.get("action", "")
         if value is None:
             value = detected.get("value")
+        if not params.get("app_name"):
+            params["app_name"] = detected.get("app_name")
 
     action = raw_action.lower().strip().replace(" ", "_").replace("-", "_")
 
@@ -819,6 +821,17 @@ def computer_settings(
 
     if action == "wifi_status":
         return wifi_status()
+
+    if action in ("app_volume", "mute_app", "set_app_volume"):
+        app_name = str(params.get("app_name") or params.get("value") or value or "").strip()
+        if not app_name:
+            return "Which app's volume, sir?"
+        if action == "mute_app":
+            return app_volume(app_name, None)
+        try:
+            return app_volume(app_name, int(value) if value is not None else None)
+        except Exception as e:
+            return f"App volume failed: {e}"
 
     if action in ("wifi_on", "wifi_off"):
         return _win_wifi_set(action == "wifi_on") if _OS == "Windows" else toggle_wifi() or f"{action} toggled."
