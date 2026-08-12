@@ -50,6 +50,7 @@ from actions.game_updater      import game_updater
 from actions.system_status     import system_status
 from actions.task_manager      import task_manager
 from actions.clipboard         import clipboard_action
+from actions.vision_gesture    import vision_gesture
 
 
 def get_base_dir():
@@ -612,6 +613,28 @@ TOOL_DECLARATIONS = [
             "required": ["action"]
         }
     },
+    {
+        "name": "vision_gesture",
+        "description": (
+            "Full-body computer vision using the camera. Free, local, no AI API. "
+            "Modes (continuous): 'gesture' recognizes hand gestures and finger counts; "
+            "'air_mouse' moves the cursor with the index finger (pinch to click); "
+            "'volume' controls volume via thumb-index pinch; 'motion' detects movement; "
+            "'posture' reports body pose (arms raised, leaning); 'focus' watches the frame. "
+            "One-shot actions: 'face_count' counts people, 'qr' reads a QR code, "
+            "'snapshot' describes what's on camera. "
+            "Use when the user asks about gestures, wants hand control, or camera actions."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "start | stop | face_count | qr | snapshot | status"},
+                "mode":   {"type": "STRING", "description": "gesture | air_mouse | volume | motion | posture | focus (for start)"},
+                "text":   {"type": "STRING", "description": "Optional question for snapshot"}
+            },
+            "required": ["action"]
+        }
+    },
 ]
 
 
@@ -844,6 +867,12 @@ class JarvisLive:
             elif name == "clipboard":
                 r = await loop.run_in_executor(None, lambda: clipboard_action(parameters=args, player=self.ui))
                 result = r or "Clipboard operation done."
+
+            elif name == "vision_gesture":
+                r = await loop.run_in_executor(
+                    None, lambda: vision_gesture(parameters=args, player=self.ui, speak=self.speak)
+                )
+                result = r or "Vision action done."
 
             elif name == "recall_memory":
                 from memory.memory_manager import search_memory

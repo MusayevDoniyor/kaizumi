@@ -251,6 +251,10 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         from memory.memory_manager import search_memory
         return search_memory(parameters.get("query", ""), parameters.get("category", "")) or "Done."
 
+    elif tool == "vision_gesture":
+        from actions.vision_gesture import vision_gesture
+        return vision_gesture(parameters=parameters, player=None, speak=speak) or "Done."
+
     elif tool == "generated_code":
         # Safety-first: do not execute LLM-generated arbitrary code by default.
         # Keep the helper available in codebase, but require implementing a safer sandbox/approval flow first.

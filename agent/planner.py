@@ -90,6 +90,10 @@ recall_memory
   query: string (required)
   category: "identity" | "preferences" | "projects" | "relationships" | "wishes" | "notes" (optional)
 
+vision_gesture
+  action: "start" | "stop" | "face_count" | "qr" | "snapshot" | "status" (required)
+  mode: "gesture" | "air_mouse" | "volume" | "motion" | "posture" | "focus" (for start)
+
 screen_process
   text: string (required) — what to analyze or ask about the screen
   angle: "screen" | "camera" (optional)
