@@ -976,11 +976,11 @@ class JarvisLive:
                 import pystray
                 return pystray.Menu(
                     pystray.MenuItem(
-                        lambda: "🔇 Unmute" if self.ui.muted else "🔊 Mute (F4)",
+                        lambda item: "🔇 Unmute" if self.ui.muted else "🔊 Mute (F4)",
                         _on_ui(self.ui._toggle_mute),
                     ),
                     pystray.MenuItem(
-                        lambda: "😴 Stop Wake Word" if _wake_active() else "💤 Activate Wake Word",
+                        lambda item: "😴 Stop Wake Word" if _wake_active() else "💤 Activate Wake Word",
                         _toggle_wake,
                     ),
                     pystray.MenuItem("📋 Daily Briefing", _brief),
@@ -1836,6 +1836,14 @@ class JarvisLive:
                 close_bridge(*bridge)
 
 
+def _tk_exception_handler(exc_type, exc_value, tb):
+    """Suppress the noisy 'Exception in Tkinter callback' block when the user
+    presses Ctrl+C mid-draw; real errors still print normally."""
+    if isinstance(exc_value, KeyboardInterrupt):
+        return
+    traceback.print_exception(exc_type, exc_value, tb)
+
+
 def main():
     _ensure_core_deps()
     log_file = setup_logger(BASE_DIR)
@@ -1863,6 +1871,7 @@ def main():
             print("\n🔴 Shutting down...")
 
     threading.Thread(target=runner, daemon=True).start()
+    ui.root.report_callback_exception = _tk_exception_handler
     try:
         ui.root.mainloop()
     except KeyboardInterrupt:
