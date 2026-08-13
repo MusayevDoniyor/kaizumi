@@ -1863,7 +1863,20 @@ def main():
             print("\n🔴 Shutting down...")
 
     threading.Thread(target=runner, daemon=True).start()
-    ui.root.mainloop()
+    try:
+        ui.root.mainloop()
+    except KeyboardInterrupt:
+        print("\n🛑 Stopping Kaizumi (Ctrl+C)...")
+        try:
+            from actions.system_tray import stop as _tray_stop
+            _tray_stop()
+        except Exception:
+            pass
+        try:
+            ui.root.destroy()
+        except Exception:
+            pass
+        print("👋 Shut down cleanly. See you, sir!")
 
 
 if __name__ == "__main__":
