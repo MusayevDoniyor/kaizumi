@@ -11,6 +11,10 @@ venv/
 
 # Logs
 *.log
+logs/
+
+# Secrets — never commit API keys
+config/api_keys.json
 
 # IDE
 .idea/

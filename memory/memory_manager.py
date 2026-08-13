@@ -109,9 +109,29 @@ def update_memory(memory_update: dict) -> dict:
 
     memory = load_memory()
     if _recursive_update(memory, memory_update):
+        prune_memory(memory)
         save_memory(memory)
         print(f"[Memory] 💾 Saved: {list(memory_update.keys())}")
     return memory
+
+
+def prune_memory(memory: dict, cap: int = 40) -> None:
+    """Keep long_term.json from growing unboundedly — cap entries per category,
+    keeping the most recently updated ones."""
+    if not isinstance(memory, dict):
+        return
+    for cat_name, cat in memory.items():
+        if not isinstance(cat, dict):
+            continue
+        if len(cat) <= cap:
+            continue
+        newest = sorted(
+            cat.items(),
+            key=lambda kv: str(kv[1].get("updated", "")) if isinstance(kv[1], dict) else "",
+            reverse=True,
+        )[:cap]
+        memory[cat_name] = dict(newest)
+        print(f"[Memory] ✂️ Pruned {cat_name}: kept {cap} most recent entries")
 
 
 def should_extract_memory(user_text: str, jarvis_text: str, api_key: str) -> bool:

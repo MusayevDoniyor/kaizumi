@@ -7,6 +7,8 @@ import time
 import traceback
 from pathlib import Path
 
+from logger import setup_logger, log, log_tool
+
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -31,6 +33,8 @@ from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
     should_extract_memory, extract_memory
 )
+from agent.resilience import ToolResult, run_sync_tool
+from agent.loop_guard import LoopGuard
 
 from actions.flight_finder     import flight_finder
 from actions.open_app          import open_app
@@ -72,6 +76,11 @@ CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
+
+PHASE_IDLE, PHASE_LISTENING, PHASE_THINKING, PHASE_SPEAKING = (
+    "idle", "listening", "thinking", "speaking"
+)
+MAX_ROLLING_CHARS = 16000
 
 
 def _ensure_audio_deps():
@@ -148,16 +157,25 @@ def _load_system_prompt() -> str:
 
 # ── Hafıza ────────────────────────────────────────────────────────────────────
 _last_memory_input = ""
+_memory_lock       = threading.Lock()
+_memory_running    = False
 
 
 def _update_memory_async(user_text: str, jarvis_text: str) -> None:
-    global _last_memory_input
+    global _last_memory_input, _memory_running
 
     user_text   = (user_text   or "").strip()
     jarvis_text = (jarvis_text or "").strip()
 
     if len(user_text) < 5 or user_text == _last_memory_input:
         return
+
+    with _memory_lock:
+        if _memory_running:
+            print("[Memory] ⏳ Already extracting — skipping this turn.")
+            return
+        _memory_running = True
+
     _last_memory_input = user_text
 
     try:
@@ -171,6 +189,9 @@ def _update_memory_async(user_text: str, jarvis_text: str) -> None:
     except Exception as e:
         if "429" not in str(e):
             print(f"[Memory] ⚠️ {e}")
+    finally:
+        with _memory_lock:
+            _memory_running = False
 
 
 # ── Tool declarations ─────────────────────────────────────────────────────────
@@ -676,6 +697,25 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "schedule",
+        "description": (
+            "Sets a timed in-app action that fires after a number of seconds. "
+            "When it fires, Kaizumi speaks the message and sends a notification "
+            "to the connected phone. Also lists and cancels pending schedules. "
+            "Use for countdowns, 'remind me in X minutes', timers, or delayed tasks."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":  {"type": "STRING", "description": "set | list | cancel (default: list)"},
+                "seconds": {"type": "INTEGER", "description": "Delay in seconds (set only, min 10)"},
+                "message": {"type": "STRING", "description": "What to say/notify when it fires"},
+                "id":      {"type": "INTEGER", "description": "Schedule id to cancel"}
+            },
+            "required": []
+        }
+    },
+    {
         "name": "wake_word",
         "description": (
             "Controls the hands-free wake word listener ('Hey Kaizumi', "
@@ -709,9 +749,19 @@ class JarvisLive:
         self._speaking_lock = threading.Lock()
         self._last_play_ts  = 0.0
         self._turn_complete = False
+        self._ready         = False
+        self._phase         = PHASE_IDLE
+        self._phase_lock    = threading.Lock()
+        self._rolling_parts = []
+        self._rolling_len   = 0
+        self._roll_turns    = 0
+        self.loop_guard     = LoopGuard()
+        self._tool_handlers = self._build_tool_handlers()
         self.ui.on_text_command = self._on_text_command
         self.remote_clients = set()
-        self.remote_port    = None
+        self.remote_port    = remote_port
+        self._schedules     = []
+        self._sched_lock    = threading.Lock()
 
         try:
             wake_service.configure(on_detect=self._on_wake_detect)
@@ -721,6 +771,12 @@ class JarvisLive:
     def _on_wake_detect(self):
         """Excited when the wake word is heard — un-mute and listen (barge-in)."""
         try:
+            if not self._ready or not self.session:
+                print("[WakeWord] ⚠️ Ignored — session not ready.")
+                return
+            if self.remote_clients:
+                print("[WakeWord] 🚫 Ignored — phone remote active, barge-in on the phone.")
+                return
             self.ui.muted = False
             self.set_speaking(False)
             self.ui.write_log("SYS: Wake word heard — listening.")
@@ -822,10 +878,105 @@ class JarvisLive:
     def set_speaking(self, value: bool):
         with self._speaking_lock:
             self._is_speaking = value
-        if value:
+        self._set_phase(PHASE_SPEAKING if value else PHASE_LISTENING)
+
+    def _set_phase(self, phase: str):
+        with self._phase_lock:
+            self._phase = phase
+        if phase == PHASE_THINKING:
+            self.ui.set_state("THINKING")
+        elif phase == PHASE_SPEAKING:
             self.ui.set_state("SPEAKING")
-        elif not self.ui.muted:
-            self.ui.set_state("LISTENING")
+        elif phase == PHASE_LISTENING:
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+        else:
+            self.ui.set_state("ONLINE")
+        if self.remote_clients:
+            state = {
+                PHASE_THINKING:  "THINKING",
+                PHASE_SPEAKING:  "SPEAKING",
+                PHASE_LISTENING: "MUTED" if self.ui.muted else "LISTENING",
+            }.get(phase, "ONLINE")
+            self.broadcast_remote({"type": "phase", "state": state})
+
+    def broadcast_remote(self, payload: dict):
+        """Send a JSON event to every connected phone (async-safe)."""
+        if not self.remote_clients or not self._loop:
+            return
+        for ws in list(self.remote_clients):
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    ws.send(json.dumps(payload, ensure_ascii=False)), self._loop
+                )
+            except Exception:
+                self.remote_clients.discard(ws)
+
+    def _safely_send(self, ws, payload: dict):
+        """Send one JSON event to one phone (async-safe)."""
+        if not self._loop:
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(
+                ws.send(json.dumps(payload, ensure_ascii=False)), self._loop
+            )
+        except Exception:
+            pass
+
+    def _current_phase(self) -> str:
+        with self._phase_lock:
+            return self._phase
+
+    def force_reset(self):
+        """Single-owner guarantee: any failure path can force-clear the audio
+        turn; set_speaking(False) alone is not enough in edge cases."""
+        with self._speaking_lock:
+            self._is_speaking = False
+        self._set_phase(PHASE_LISTENING)
+
+    def _update_rolling(self, user_text: str, kaizumi_text: str):
+        if not user_text and not kaizumi_text:
+            return
+        part = f"User: {user_text}\nKaizumi: {kaizumi_text}\n"
+        self._rolling_parts.append(part)
+        self._rolling_len += len(part)
+        with self._phase_lock:
+            self._roll_turns += 1
+        while self._rolling_len > MAX_ROLLING_CHARS and self._rolling_parts:
+            old = self._rolling_parts.pop(0)
+            self._rolling_len -= len(old)
+
+    def _rolling_digest(self, limit: int = 1400) -> str:
+        """Flatten the recent-context buffer into the prompt-able string."""
+        joined = "".join(self._rolling_parts)[-MAX_ROLLING_CHARS:]
+        if len(joined) > limit:
+            joined = joined[-limit:]
+            cut = joined.find("\n")
+            if cut > 0:
+                joined = joined[cut:]
+        return joined.strip()
+
+    def _persist_rolling_summary(self):
+        """Save a compact summary of recent turns into long-term memory so a
+        restart doesn't wipe the conversation context entirely."""
+        try:
+            with self._phase_lock:
+                self._roll_turns = 0
+            recent = self._rolling_digest(limit=2000)
+            if not recent:
+                return
+            from datetime import datetime
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+            update_memory({
+                "notes": {
+                    f"conversation_{stamp.replace(' ', '_').replace(':', '-')}": {
+                        "value": recent[:400]
+                    }
+                }
+            })
+            print("[Memory] 🧠 Rolling summary persisted")
+        except Exception as e:
+            print(f"[Memory] ⚠️ Could not persist summary: {e}")
 
     def speak(self, text: str):
         if not self._loop or not self.session:
@@ -838,10 +989,101 @@ class JarvisLive:
             self._loop
         )
 
-    def speak_error(self, tool_name: str, error: str):
-        short = str(error)[:120]
+    def _log_tool_error(self, tool_name: str, tr: ToolResult):
+        short = str(tr.content)[:120]
         self.ui.write_log(f"ERR: {tool_name} — {short}")
-        self.speak(f"Sir, {tool_name} encountered an error. {short}")
+        if tr.error_kind == "fatal":
+            self.speak(f"Sir, {tool_name} encountered an error. {short}")
+
+    def _build_tool_handlers(self):
+        """name -> (handler(args)->str, timeout_seconds)."""
+        ui    = self.ui
+        speak = self.speak
+
+        def _agent_task(args):
+            from agent.task_queue import get_queue, TaskPriority
+            priority_map = {"low": TaskPriority.LOW, "normal": TaskPriority.NORMAL, "high": TaskPriority.HIGH}
+            priority = priority_map.get(str(args.get("priority", "normal")).lower(), TaskPriority.NORMAL)
+            task_id  = get_queue().submit(goal=args.get("goal", ""), priority=priority, speak=speak)
+            return f"Task started (ID: {task_id})."
+
+        def _recall(args):
+            from memory.memory_manager import search_memory
+            return search_memory(args.get("query", ""), args.get("category", ""))
+
+        def _wake(args):
+            from actions.wake_word import wake_word as wake_word_action
+            return wake_word_action(parameters=args, player=ui)
+
+        def _save_memory(args):
+            category = args.get("category", "notes")
+            key      = args.get("key", "")
+            value    = args.get("value", "")
+            if key and value:
+                update_memory({category: {key: {"value": value}}})
+                print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
+            return "ok"
+
+        def _set_mode(args):
+            mode = str(args.get("mode", "")).strip().lower()
+            valid = {"girlfriend", "friend", "butler", "casual"}
+            if mode not in valid:
+                return f"Invalid mode '{mode}'. Use: girlfriend, friend, butler, casual."
+            update_memory({"preferences": {"assistant_mode": {"value": mode}}})
+            return f"Mode set to: {mode}."
+
+        def _set_mood(args):
+            mood = str(args.get("mood", "")).strip().lower()
+            valid = {"calm", "playful", "romantic", "strict"}
+            if mood not in valid:
+                return f"Invalid mood '{mood}'. Use: calm, playful, romantic, strict."
+            update_memory({"preferences": {"assistant_mood": {"value": mood}}})
+            return f"Mood set to: {mood}."
+
+        return {
+            "open_app":          (lambda a: open_app(parameters=a, response=None, player=ui), 60),
+            "weather_report":    (lambda a: weather_action(parameters=a, player=ui), 60),
+            "browser_control":   (lambda a: browser_control(parameters=a, player=ui), 120),
+            "file_controller":   (lambda a: file_controller(parameters=a, player=ui), 60),
+            "send_message":      (lambda a: send_message(parameters=a, response=None, player=ui, session_memory=None), 60),
+            "reminder":          (lambda a: reminder(parameters=a, response=None, player=ui), 30),
+            "youtube_video":     (lambda a: youtube_video(parameters=a, response=None, player=ui), 90),
+            "screen_process":    (lambda a: screen_process(parameters=a, player=ui), 120),
+            "computer_settings": (lambda a: computer_settings(parameters=a, response=None, player=ui), 120),
+            "cmd_control":       (lambda a: cmd_control(parameters=a, player=ui), 120),
+            "desktop_control":   (lambda a: desktop_control(parameters=a, player=ui), 60),
+            "code_helper":       (lambda a: code_helper(parameters=a, player=ui, speak=speak), 180),
+            "dev_agent":         (lambda a: dev_agent(parameters=a, player=ui, speak=speak), 180),
+            "agent_task":        (_agent_task, 15),
+            "web_search":        (lambda a: web_search_action(parameters=a, player=ui), 90),
+            "computer_control":  (lambda a: computer_control(parameters=a, player=ui), 120),
+            "system_status":     (lambda a: system_status(parameters=a, player=ui), 45),
+            "task_manager":      (lambda a: task_manager(parameters=a, player=ui), 60),
+            "clipboard":         (lambda a: clipboard_action(parameters=a, player=ui), 45),
+            "vision_gesture":    (lambda a: vision_gesture(parameters=a, player=ui, speak=speak), 120),
+            "recall_memory":     (_recall, 20),
+            "game_updater":      (lambda a: game_updater(parameters=a, player=ui, speak=speak), 120),
+            "flight_finder":     (lambda a: flight_finder(parameters=a, player=ui), 120),
+            "notify":            (lambda a: notify(parameters=a, player=ui), 30),
+            "daily_briefing":    (lambda a: daily_briefing(parameters=a, player=ui), 120),
+            "wake_word":         (_wake, 45),
+            "save_memory":       (_save_memory, 10),
+            "set_mode":          (_set_mode, 10),
+            "set_mood":          (_set_mood, 10),
+        }
+
+    async def _dispatch_tool(self, name: str, args: dict) -> ToolResult:
+        blocked = self.loop_guard.check(name, args)
+        if blocked:
+            print(f"[KAIZUMI] 🛑 {name} blocked by loop guard")
+            return ToolResult(ok=False, content=blocked, error_kind="loop")
+
+        entry = self._tool_handlers.get(name)
+        if entry is None:
+            return ToolResult(ok=False, content=f"Unknown tool: {name}", error_kind="fatal")
+
+        fn, timeout = entry
+        return await run_sync_tool(lambda: fn(args), name, timeout=timeout)
 
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
@@ -867,6 +1109,12 @@ class JarvisLive:
         )
 
         parts = [time_ctx]
+        recent_ctx = self._rolling_digest(limit=1400)
+        if recent_ctx:
+            parts.append(
+                "[RECENT CONVERSATION — use it to stay consistent, but focus on what the user just said]\n"
+                + recent_ctx + "\n"
+            )
         if mem_str:
             parts.append(mem_str)
         parts.append(style_ctx)
@@ -892,6 +1140,7 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
 
+        log_tool(name, args)
         print(f"[KAIZUMI] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
@@ -946,6 +1195,8 @@ class JarvisLive:
         loop   = asyncio.get_event_loop()
         result = "Done."
 
+        self.broadcast_remote({"type": "tool", "name": name, "status": "start",
+                               "summary": " ".join(str(v) for v in args.values())[:120]})
         try:
             if name == "open_app":
                 r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
@@ -1061,17 +1312,27 @@ class JarvisLive:
                 r = await loop.run_in_executor(None, lambda: wake_word_action(parameters=args, player=self.ui))
                 result = r or "Done."
 
+            elif name == "schedule":
+                result = await self._schedule(args)
+
             else:
                 result = f"Unknown tool: {name}"
 
         except Exception as e:
             result = f"Tool '{name}' failed: {e}"
             traceback.print_exc()
+            log_tool(name, args, error=e)
             self.speak_error(name, e)
+            self.broadcast_remote({"type": "tool", "name": name, "status": "error",
+                                   "summary": str(e)[:120]})
+
+        self.broadcast_remote({"type": "tool", "name": name, "status": "done",
+                               "summary": str(result)[:120]})
 
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 
+        log_tool(name, args, result=result)
         print(f"[KAIZUMI] 📤 {name} → {str(result)[:80]}")
 
         # ── Result: tek cümle söyle, dur ──────────────────────────────────────
@@ -1079,6 +1340,87 @@ class JarvisLive:
             id=fc.id, name=name,
             response={"result": result}
         )
+
+    async def _schedule(self, args: dict) -> str:
+        """In-app timed actions: when they fire, Kaizumi speaks + notifies the
+        phone instead of relying on Windows Task Scheduler."""
+        action = str(args.get("action", "list")).lower().strip()
+        now = time.time()
+
+        with self._sched_lock:
+            if action in ("set", "add", "create"):
+                try:
+                    seconds = max(10, int(args.get("seconds", 60)))
+                except (TypeError, ValueError):
+                    return "I need `seconds` as a number."
+                message = str(args.get("message", "Reminder")).strip() or "Reminder"
+                sid = len(self._schedules) + 1
+                if any(s.get("id") == sid and not s.get("fired") for s in self._schedules):
+                    sid = max((s.get("id", 0) for s in self._schedules), default=0) + 1
+                self._schedules.append({
+                    "id": sid, "fire_at": now + seconds,
+                    "message": message, "fired": False,
+                })
+                when = self._fmt_time(now + seconds)
+                return (f"Scheduled: '{message}' in {seconds}s (ID {sid}, fires at {when}). "
+                        "I will speak up and notify your phone.")
+
+            if action in ("cancel", "delete", "remove"):
+                try:
+                    sid = int(args.get("id", 0))
+                except (TypeError, ValueError):
+                    return "I need `id` as a number."
+                for s in self._schedules:
+                    if s.get("id") == sid:
+                        self._schedules.remove(s)
+                        return f"Cancelled schedule ID {sid}."
+                return f"No scheduled action with ID {sid}, sir."
+
+            # list / status
+            pending = [s for s in self._schedules if not s.get("fired")]
+            if not pending:
+                return "No active scheduled actions, sir."
+            lines = [f"ID {s['id']} → '{s['message']}' at {self._fmt_time(s['fire_at'])}"
+                     for s in pending[:8]]
+            return "Active schedules: " + "; ".join(lines)
+
+    @staticmethod
+    def _fmt_time(ts: float) -> str:
+        try:
+            return time.strftime("%I:%M %p", time.localtime(ts))
+        except Exception:
+            return "?"
+
+    async def _scheduler_loop(self):
+        """Fire due scheduled actions — speak + notify phone, once each."""
+        try:
+            from actions.notifications import notify
+        except Exception:
+            notify = None
+        while True:
+            try:
+                due = []
+                with self._sched_lock:
+                    for s in self._schedules:
+                        if not s.get("fired") and time.time() >= s.get("fire_at", 0):
+                            due.append(s)
+                            s["fired"] = True
+                for s in due:
+                    msg = f"⏰ Reminder: {s['message']}"
+                    print(f"[Scheduler] 🔔 {msg}")
+                    if self.session:
+                        self.speak(msg)
+                    self.ui.write_log(msg)
+                    self.broadcast_remote({"type": "system", "text": msg})
+                    if notify:
+                        try:
+                            notify(parameters={"title": "Kaizumi", "message": s["message"]},
+                                   player=self.ui)
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"[Scheduler] ⚠️ {e}")
+            await asyncio.sleep(5)
 
     async def _send_realtime(self):
         while True:
@@ -1158,12 +1500,16 @@ class JarvisLive:
                             full_in = " ".join(in_buf).strip()
                             if full_in:
                                 self.ui.write_log(f"You: {full_in}")
+                                self.broadcast_remote({"type": "transcript", "role": "user", "text": full_in})
                             in_buf = []
 
                             full_out = " ".join(out_buf).strip()
                             if full_out:
                                 self.ui.write_log(f"Kaizumi: {full_out}")
+                                self.broadcast_remote({"type": "transcript", "role": "kaizumi", "text": full_out})
                             out_buf = []
+
+                            self._update_rolling(full_in, full_out)
 
                             if full_in and len(full_in) > 5:
                                 threading.Thread(
@@ -1171,6 +1517,13 @@ class JarvisLive:
                                     args=(full_in, full_out),
                                     daemon=True
                                 ).start()
+
+                            # Persist a rolling summary every ~10 turns so a
+                            # restart never wipes long-run context entirely.
+                            with self._phase_lock:
+                                n_turns = self._roll_turns
+                            if n_turns >= 10:
+                                self._persist_rolling_summary()
 
                     if response.tool_call:
                         fn_responses = []
@@ -1205,9 +1558,11 @@ class JarvisLive:
                 chunk = await self.audio_in_queue.get()
                 if not self._is_speaking:
                     self.set_speaking(True)
-                await asyncio.to_thread(stream.write, chunk)
                 self._last_play_ts = time.monotonic()
                 if self.remote_clients:
+                    # Phone is the audio device — stream only to it, never the
+                    # PC speakers too (that double-playback is what made the
+                    # phone "hear itself" through the room).
                     message = bytes(chunk)
                     for ws in list(self.remote_clients):
                         try:
@@ -1215,6 +1570,8 @@ class JarvisLive:
                         except Exception as e:
                             print(f"[Play] ⚠️ remote send: {e}")
                             self.remote_clients.discard(ws)
+                else:
+                    await asyncio.to_thread(stream.write, chunk)
                 if self.audio_in_queue.empty() and self._turn_complete:
                     self._turn_complete = False
                     self.set_speaking(False)
@@ -1232,47 +1589,70 @@ class JarvisLive:
             http_options={"api_version": "v1beta"}
         )
 
-        while True:
+        bridge = None
+        if self.remote_port:
             try:
-                print("[KAIZUMI] 🔌 Connecting...")
-                self.ui.set_state("THINKING")
-                config = self._build_config()
-
-                async with (
-                    client.aio.live.connect(model=LIVE_MODEL, config=config) as session,
-                    asyncio.TaskGroup() as tg,
-                ):
-                    self.session        = session
-                    self._loop          = asyncio.get_event_loop()
-                    self.audio_in_queue = asyncio.Queue()
-                    self.out_queue      = asyncio.Queue(maxsize=64)
-
-                    print("[KAIZUMI] ✅ Connected.")
-                    self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: Kaizumi online.")
-
-                    if self.remote_port:
-                        from remote_bridge import start_bridge
-                        tg.create_task(start_bridge(self, self.remote_port))
-
-                    tg.create_task(self._send_realtime())
-                    tg.create_task(self._listen_audio())
-                    tg.create_task(self._receive_audio())
-                    tg.create_task(self._play_audio())
-                    tg.create_task(self._watch_speaking())
-
+                from remote_bridge import start_bridge
+                bridge = await start_bridge(self, self.remote_port)
+                log(f"Bridge ON (ports 8765/8766, LAN + adb)")
             except Exception as e:
-                print(f"[KAIZUMI] ⚠️ {e}")
+                log(f"Bridge FAILED: {e}", level="ERROR")
+                print(f"[Bridge] ⚠️ Could not start bridge: {e}")
                 traceback.print_exc()
 
-            self.set_speaking(False)
-            self.ui.set_state("THINKING")
-            print("[KAIZUMI] 🔄 Reconnecting in 3s...")
-            await asyncio.sleep(3)
+        try:
+            while True:
+                try:
+                    print("[KAIZUMI] 🔌 Connecting...")
+                    self.ui.set_state("THINKING")
+                    config = self._build_config()
+
+                    async with (
+                        client.aio.live.connect(model=LIVE_MODEL, config=config) as session,
+                        asyncio.TaskGroup() as tg,
+                    ):
+                        self.session        = session
+                        self._loop          = asyncio.get_event_loop()
+                        self.audio_in_queue = asyncio.Queue()
+                        self.out_queue      = asyncio.Queue(maxsize=64)
+                        self._ready         = True
+
+                        log("Gemini session CONNECTED")
+                        print("[KAIZUMI] ✅ Connected.")
+                        self.ui.set_state("LISTENING")
+                        self.ui.write_log("SYS: Kaizumi online.")
+
+                        tg.create_task(self._send_realtime())
+                        tg.create_task(self._listen_audio())
+                        tg.create_task(self._receive_audio())
+                        tg.create_task(self._play_audio())
+                        tg.create_task(self._watch_speaking())
+                        tg.create_task(self._scheduler_loop())
+
+                except Exception as e:
+                    log(f"Session error: {e}", level="ERROR")
+                    print(f"[KAIZUMI] ⚠️ {e}")
+                    traceback.print_exc()
+
+                self._ready         = False
+                self.session        = None
+                self.out_queue      = None
+                self.audio_in_queue = None
+                self.set_speaking(False)
+                self.ui.set_state("THINKING")
+                log("Session lost — reconnecting in 3s", level="WARN")
+                print("[KAIZUMI] 🔄 Reconnecting in 3s...")
+                await asyncio.sleep(3)
+        finally:
+            if bridge:
+                from remote_bridge import close_bridge
+                close_bridge(*bridge)
 
 
 def main():
     _ensure_core_deps()
+    log_file = setup_logger(BASE_DIR)
+    log(f"Base dir: {BASE_DIR}\nLog file: {log_file}")
     ui = JarvisUI("face.png")
 
     remote_port = None
