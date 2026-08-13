@@ -26,3 +26,5 @@ winotify
 pystray
 keyboard
 websockets
+python-pptx
+openpyxl

@@ -734,6 +734,79 @@ TOOL_DECLARATIONS = [
             "required": []
         }
     },
+    {
+        "name": "create_presentation",
+        "description": (
+            "Generates a PowerPoint (.pptx) file from a simple request and saves it "
+            "to Documents/Kaizumi. Use for 'make me a presentation about X', "
+            "'create slides about Y'. Pass the topic as title and the slides with "
+            "their bullet points. After creating, tell the user where it was saved."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "title": {
+                    "type": "STRING",
+                    "description": "Presentation title / topic"
+                },
+                "filename": {
+                    "type": "STRING",
+                    "description": "Optional file name without extension (defaults to title)"
+                },
+                "slides": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "title":   {"type": "STRING", "description": "Slide heading"},
+                            "bullets": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Bullet points for the slide"}
+                        },
+                        "required": ["title"]
+                    },
+                    "description": "List of slides, each with a title and bullet points"
+                }
+            },
+            "required": ["title"]
+        }
+    },
+    {
+        "name": "create_spreadsheet",
+        "description": (
+            "Creates an Excel (.xlsx) spreadsheet with headers and data rows and saves it "
+            "to Documents/Kaizumi. Use for 'make a spreadsheet of ...', "
+            "'create a table with columns ... and these values'. "
+            "After creating, tell the user where it was saved."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "filename":  {"type": "STRING", "description": "File name without extension"},
+                "sheet_name": {"type": "STRING", "description": "Optional sheet name (default: Sheet1)"},
+                "headers":   {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Column headers"},
+                "rows":      {"type": "ARRAY", "items": {"type": "ARRAY"}, "description": "Data rows; each row is an array of cell values"}
+            },
+            "required": ["filename"]
+        }
+    },
+    {
+        "name": "smart_home_control",
+        "description": (
+            "Controls smart home devices (lights, switches, plugs, thermostats) registered "
+            "in config/smart_home.json. Supports Home Assistant, a custom webhook, or a "
+            "simulated mode for testing. Actions: turn_on, turn_off, toggle, set_level, "
+            "status. Use for 'turn on the living room light', 'set brightness to 50', "
+            "'what is the state of the AC'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "turn_on | turn_off | toggle | set_level | status (default: status)"},
+                "device": {"type": "STRING", "description": "Device id or name from smart_home.json"},
+                "value":  {"type": "NUMBER", "description": "Level for set_level (e.g. brightness percent 0-100)"}
+            },
+            "required": ["action"]
+        }
+    },
 ]
 
 
@@ -1314,6 +1387,43 @@ class JarvisLive:
 
             elif name == "schedule":
                 result = await self._schedule(args)
+
+            elif name == "create_presentation":
+                from actions.office_builder import create_presentation as _make_pptx
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: _make_pptx(
+                        title=args.get("title", ""),
+                        slides=args.get("slides") or [],
+                        filename=args.get("filename"),
+                    ),
+                )
+                result = r
+
+            elif name == "create_spreadsheet":
+                from actions.office_builder import create_spreadsheet as _make_xlsx
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: _make_xlsx(
+                        filename=args.get("filename", "spreadsheet"),
+                        headers=args.get("headers") or [],
+                        rows=args.get("rows") or [],
+                        sheet_name=args.get("sheet_name", "Sheet1"),
+                    ),
+                )
+                result = r
+
+            elif name == "smart_home_control":
+                from actions.smart_home import smart_home_control as _sh_control
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: _sh_control(
+                        action=args.get("action", "status"),
+                        device=args.get("device"),
+                        value=args.get("value"),
+                    ),
+                )
+                result = r
 
             else:
                 result = f"Unknown tool: {name}"

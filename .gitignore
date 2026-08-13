@@ -15,6 +15,7 @@ logs/
 
 # Secrets — never commit API keys
 config/api_keys.json
+config/smart_home.json
 
 # IDE
 .idea/
