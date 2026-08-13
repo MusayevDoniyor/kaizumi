@@ -13,12 +13,16 @@ venv/
 *.log
 logs/
 
+# Personal / user data — never share this project with these files
+memory/*.json
+models/hey_jarvis*
+models/hey_kaizumi*
+
 # Local runtime state
-data/organize_log.json
+data/
 
 # Secrets — never commit API keys
-config/api_keys.json
-config/smart_home.json
+config/*.json
 
 # IDE
 .idea/
