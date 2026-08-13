@@ -48,11 +48,12 @@ def configure_icon(menu_factory, title: str = "Kaizumi") -> bool:
     if _tray_icon is not None:
         return True
     try:
+        menu = menu_factory() if callable(menu_factory) else menu_factory
         icon = pystray.Icon(
             name="Kaizumi",
             icon=_build_icon(),
             title=title,
-            menu=menu_factory,
+            menu=menu,
         )
         _tray_icon   = icon
         _tray_thread = threading.Thread(target=icon.run, daemon=True, name="TrayThread")
