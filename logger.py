@@ -68,7 +68,7 @@ def setup_logger(base_dir) -> Path:
 
     log_dir = Path(base_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"kaizumi-{datetime.now():%Y-%m-%d}.log"
+    log_file = log_dir / f"kaizumi-{datetime.now():%Y-%m-%d_%H-%M-%S}.log"
 
     _LOGFILE = _FileMirror(log_file)
 
