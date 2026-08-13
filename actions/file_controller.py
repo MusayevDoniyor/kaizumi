@@ -3,9 +3,216 @@
 
 import shutil
 import zipfile
+import json
+import sys
 from pathlib import Path
 from datetime import datetime
 import send2trash
+
+
+def _get_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent.parent
+
+
+ORGANIZE_LOG_PATH = _get_base_dir() / "data" / "organize_log.json"
+
+_CATEGORY_EXT = {
+    "Images":      [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico", ".heic", ".tiff", ".avif"],
+    "Videos":      [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpeg"],
+    "Music":       [".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a", ".opus"],
+    "Documents":   [".pdf", ".doc", ".docx", ".rtf", ".odt", ".txt", ".md", ".epub"],
+    "Spreadsheets": [".xls", ".xlsx", ".ods", ".csv", ".tsv"],
+    "Presentations": [".ppt", ".pptx", ".odp", ".key"],
+    "Archives":    [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".tgz"],
+    "Installers":  [".exe", ".msi", ".apk", ".dmg", ".deb", ".rpm", ".appx", ".iso"],
+    "Code":        [".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".json", ".xml", ".yaml", ".yml",
+                    ".cpp", ".c", ".h", ".hpp", ".java", ".go", ".rs", ".sh", ".bat", ".ps1", ".sql", ".ipynb"],
+    "Fonts":       [".ttf", ".otf", ".woff", ".woff2", ".eot"],
+    "Design":      [".psd", ".ai", ".sketch", ".fig", ".blend", ".fbx", ".obj", ".stl"],
+}
+
+_AI_CATEGORIES = [
+    "Work", "School", "Personal", "Finance", "Projects",
+    "Design", "Media", "Backups", "Software", "Other",
+]
+
+
+def _api_key() -> str:
+    try:
+        with open(_get_base_dir() / "config" / "api_keys.json", "r", encoding="utf-8") as f:
+            keys = json.load(f)
+        key = keys.get("gemini_api_key", "")
+        if not key:
+            raise ValueError("gemini_api_key not found")
+        return key
+    except Exception as e:
+        raise RuntimeError(f"Could not load API key: {e}")
+
+
+def _category_for_ext(ext: str) -> str:
+    ext = ext.lower()
+    for cat, exts in _CATEGORY_EXT.items():
+        if ext in exts:
+            return cat
+    return "Other"
+
+
+def _write_organize_log(entry: dict):
+    try:
+        ORGANIZE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        entries = []
+        if ORGANIZE_LOG_PATH.exists():
+            try:
+                entries = json.loads(ORGANIZE_LOG_PATH.read_text("utf-8"))
+            except Exception:
+                entries = []
+        entries.append(entry)
+        ORGANIZE_LOG_PATH.write_text(json.dumps(entries, indent=2, ensure_ascii=False), "utf-8")
+    except Exception as e:
+        print(f"[Organize] ⚠️ Could not write log: {e}")
+
+
+def _ai_categorize(names, scope_name: str) -> dict:
+    """Ask Gemini to map file names to a small fixed set of categories."""
+    from google import genai
+    client = genai.Client(api_key=_api_key(), http_options={"api_version": "v1beta"})
+    batch = list(names)
+    prompt = (
+        "You are a file-organization assistant. Categorize each file name into EXACTLY one "
+        f"of these categories: {', '.join(_AI_CATEGORIES)}. "
+        "Reply with ONLY a JSON object mapping file name -> category, no explanation.\n\n"
+        f"Files:\n" + "\n".join(batch)
+    )
+    resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    text = (resp.text or "").strip()
+    text = text.replace("```json", "").replace("```", "").strip()
+    mapping = json.loads(text)
+    out = {}
+    for name in names:
+        cat = str(mapping.get(name, "Other")).strip()
+        if cat not in _AI_CATEGORIES:
+            cat = "Other"
+        out[name] = cat
+    return out
+
+
+def organize_folder(
+    scope: str = "desktop",
+    mode: str = "by_type",
+    dry_run: bool = False,
+    include_subfolders: bool = False,
+) -> str:
+    """Group files in a folder into category (or date) subfolders.
+
+    scope: desktop | downloads | documents | pictures | music | videos | home | <path>
+    mode:  by_type | by_date | ai
+    """
+    target = _resolve_path(scope)
+    if not target.exists() or not target.is_dir():
+        return f"Folder not found: {target}"
+    mode = (mode or "by_type").lower()
+
+    files = []
+    if include_subfolders:
+        for f in target.rglob("*"):
+            if f.is_file():
+                files.append(f)
+    else:
+        for f in target.iterdir():
+            if f.is_file():
+                files.append(f)
+    files = [f for f in files if not f.name.startswith(".")]
+
+    if not files:
+        return f"No files to organize in {target.name}/"
+
+    # decide destination folder per file
+    dest = {}
+    if mode == "ai":
+        try:
+            cats = _ai_categorize([f.name for f in files], target.name)
+        except Exception as e:
+            return f"AI categorization failed (check API key): {e}"
+        for f in files:
+            dest[f] = cats.get(f.name, "Other")
+    elif mode == "by_date":
+        for f in files:
+            ts = f.stat().st_mtime
+            dest[f] = datetime.fromtimestamp(ts).strftime("%Y-%m")
+    else:
+        for f in files:
+            dest[f] = _category_for_ext(f.suffix)
+
+    moves = []
+    skipped = 0
+    for f, cat in dest.items():
+        new_dir = target / cat
+        new_path = new_dir / f.name
+        if new_path == f:
+            continue
+        if new_path.exists():
+            skipped += 1
+            continue
+        moves.append((f, new_path))
+        if not dry_run:
+            try:
+                new_dir.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(f), str(new_path))
+            except Exception as e:
+                return f"Could not move {f.name}: {e}"
+
+    verb = "Would move" if dry_run else "Moved"
+    result = f"{verb} {len(moves)} file(s) into categories under {target.name}/ ({'preview, nothing changed' if dry_run else mode + ' mode'})."
+    shown = 0
+    for f, new_path in moves[:12]:
+        result += f"\n  {f.name} → {new_path.parent.name}/"
+        shown += 1
+    if len(moves) > shown:
+        result += f"\n  ... and {len(moves) - shown} more."
+    if skipped:
+        result += f"\n{skipped} file(s) skipped (already exist)."
+
+    if moves and not dry_run:
+        _write_organize_log({
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "scope": str(target),
+            "mode": mode,
+            "moves": [{"from": str(f), "to": str(np)} for f, np in moves],
+        })
+    return result
+
+
+def undo_organize() -> str:
+    """Revert the last organize operation using the manifest log."""
+    if not ORGANIZE_LOG_PATH.exists():
+        return "No organize history found."
+    try:
+        entries = json.loads(ORGANIZE_LOG_PATH.read_text("utf-8"))
+    except Exception as e:
+        return f"Could not read organize history: {e}"
+    if not entries:
+        return "No organize history found."
+
+    entry = entries.pop(-1)
+    moved_back = 0
+    for m in reversed(entry.get("moves", [])):
+        src = Path(m.get("to", ""))
+        dst = Path(m.get("from", ""))
+        if src.exists():
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
+                moved_back += 1
+            except Exception as e:
+                return f"Could not restore {src.name}: {e}"
+
+    try:
+        ORGANIZE_LOG_PATH.write_text(json.dumps(entries, indent=2, ensure_ascii=False), "utf-8")
+    except Exception:
+        pass
+    return f"Restored {moved_back} file(s) from '{entry.get('scope')}' (mode: {entry.get('mode')})."
 
 def _get_desktop() -> Path:
     """Returns desktop path — works on Windows, Mac, Linux."""
@@ -504,6 +711,17 @@ def file_controller(
 
         elif action == "organize_desktop":
             result = organize_desktop()
+
+        elif action in ("organize", "organize_folder"):
+            result = organize_folder(
+                scope=parameters.get("scope", "desktop"),
+                mode=parameters.get("mode", "by_type"),
+                dry_run=bool(parameters.get("dry_run", False)),
+                include_subfolders=bool(parameters.get("include_subfolders", False)),
+            )
+
+        elif action in ("undo_organize", "organize_undo"):
+            result = undo_organize()
 
         elif action == "info":
             full = _full_path(path, name)

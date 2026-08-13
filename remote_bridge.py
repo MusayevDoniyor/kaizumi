@@ -18,6 +18,7 @@
 
 import json
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -25,6 +26,128 @@ REMOTE_HTML_PATH = Path(__file__).resolve().parent / "remote" / "interface.html"
 REMOTE_HTML      = REMOTE_HTML_PATH.read_text(encoding="utf-8")
 
 DEFAULT_PORT = 8765
+
+# Phone request/response: pending PC->phone calls resolved by phone replies.
+_PENDING_LOCK = threading.Lock()
+_PENDING      = {}   # req_id -> (threading.Event, dict holder)
+
+
+def phone_connected(jarvis) -> bool:
+    return bool(getattr(jarvis, "remote_clients", None))
+
+
+def _request_phone(jarvis, payload: dict, timeout: float = 12.0) -> dict | None:
+    """Send a JSON request to the first connected phone and wait for its reply.
+
+    The phone replies with the same req_id; the reply payload is returned, or
+    None on timeout / no phone.
+    """
+    clients = getattr(jarvis, "remote_clients", None)
+    if not clients:
+        return None
+    loop = getattr(jarvis, "_loop", None)
+    if not loop:
+        return None
+    ws = next(iter(clients))
+    req_id = uuid.uuid4().hex[:12]
+    holder = {}
+    event = threading.Event()
+    with _PENDING_LOCK:
+        _PENDING[req_id] = (event, holder)
+    try:
+        payload = dict(payload)
+        payload["req_id"] = req_id
+        sent = asyncio_send(loop, ws, payload)
+        if not sent:
+            return None
+        event.wait(timeout)
+    finally:
+        with _PENDING_LOCK:
+            _PENDING.pop(req_id, None)
+    return holder.get("result") if event.is_set() else None
+
+
+def asyncio_send(loop, ws, payload: dict) -> bool:
+    import asyncio
+    try:
+        fut = asyncio.run_coroutine_threadsafe(
+            ws.send(json.dumps(payload, ensure_ascii=False)), loop
+        )
+        fut.result(timeout=5)
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_pending(data: dict):
+    req_id = data.get("req_id")
+    if not req_id:
+        return
+    with _PENDING_LOCK:
+        entry = _PENDING.pop(req_id, None)
+    if entry:
+        event, holder = entry
+        holder["result"] = data
+        event.set()
+
+
+def _fail_all_pending(reason: str):
+    with _PENDING_LOCK:
+        items = list(_PENDING.values())
+        _PENDING.clear()
+    for event, holder in items:
+        holder["result"] = {"ok": False, "error": reason}
+        event.set()
+
+
+def send_sms_via_phone(jarvis, phone: str, message: str) -> str:
+    if not phone.strip():
+        return "Please provide the phone number to text, sir."
+    if not message.strip():
+        return "Please provide the message text."
+    if not phone_connected(jarvis):
+        return "No phone is connected right now — connect the app first."
+    reply = _request_phone(jarvis, {"type": "sms_send", "phone": phone, "text": message})
+    if reply is None:
+        return "No reply from the phone (timeout) — is the Kaizumi app open and connected?"
+    if not reply.get("ok"):
+        return f"SMS not sent: {reply.get('error') or 'unknown error'}"
+    return f"SMS sent to {phone}: {reply.get('detail') or 'delivered'}"
+
+
+def read_notifications_via_phone(jarvis, limit: int = 10) -> str:
+    if not phone_connected(jarvis):
+        return "No phone is connected right now — connect the app first."
+    reply = _request_phone(jarvis, {"type": "read_notifications", "limit": int(limit or 10)})
+    if reply is None:
+        return "No reply from the phone (timeout)."
+    if not reply.get("ok"):
+        return f"Notifications unavailable: {reply.get('error') or 'unknown error'}"
+    notifs = reply.get("notifications") or []
+    if not notifs:
+        return "No recent notifications on the phone."
+    lines = [f"{n.get('app','?')}: {n.get('title','')} — {n.get('text','')}" for n in notifs]
+    return "Recent phone notifications:\n" + "\n".join(lines)
+
+
+def phone_info_via_phone(jarvis) -> str:
+    if not phone_connected(jarvis):
+        return "No phone is connected right now — connect the app first."
+    reply = _request_phone(jarvis, {"type": "phone_info"})
+    if reply is None:
+        return "No reply from the phone (timeout)."
+    if not reply.get("ok"):
+        return f"Phone info unavailable: {reply.get('error') or 'unknown error'}"
+    i = reply.get("info") or {}
+    return (
+        f"Phone info:\n"
+        f"  Model: {i.get('model', '?')}\n"
+        f"  Android: {i.get('android', '?')}\n"
+        f"  Battery: {i.get('battery', '?')}%\n"
+        f"  Network: {i.get('network', '?')}\n"
+        f"  Memory free: {i.get('ram_free', '?')}\n"
+        f"  Storage free: {i.get('storage_free', '?')}"
+    )
 
 
 class _PageHandler(BaseHTTPRequestHandler):
@@ -103,7 +226,9 @@ async def start_bridge(jarvis, port: int = DEFAULT_PORT):
 
     async def _handle_json(jarvis_, data: dict, ws):
         mtype = data.get("type")
-        if mtype == "text":
+        if mtype in ("sms_result", "notifications_result", "phone_info_result", "ping_result"):
+            _resolve_pending(data)
+        elif mtype == "text":
             text = str(data.get("text", "")).strip()
             if text and jarvis_.session:
                 print(f"[Bridge] 📱 Text: {text[:80]}")
@@ -162,6 +287,7 @@ async def start_bridge(jarvis, port: int = DEFAULT_PORT):
         finally:
             jarvis.remote_clients.discard(ws)
             _disable_phone_wake()
+            _fail_all_pending("phone disconnected")
             if not jarvis.remote_clients:
                 jarvis.ui.muted = False
                 jarvis.ui.write_log("SYS: 📱 Remote off — local mode restored.")

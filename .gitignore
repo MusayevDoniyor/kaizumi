@@ -13,6 +13,9 @@ venv/
 *.log
 logs/
 
+# Local runtime state
+data/organize_log.json
+
 # Secrets — never commit API keys
 config/api_keys.json
 config/smart_home.json

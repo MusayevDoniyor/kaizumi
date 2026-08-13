@@ -346,12 +346,22 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "file_controller",
-        "description": "Manages files and folders: list, create, delete, move, copy, rename, read, write, find, disk usage, zip/compress, unzip/extract archives.",
+        "description": (
+            "Manages files and folders: list, create, delete, move, copy, rename, read, write, "
+            "find, disk usage, zip/unzip, and full auto-organization. The 'organize' action "
+            "groups loose files into category subfolders (Images, Documents, Spreadsheets, "
+            "Code, ...) in mode by_type, by month in by_date, or by AI in mode ai. Use "
+            "dry_run=true to preview first. 'undo_organize' restores the last run."
+        ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info | zip | compress | unzip | extract"},
+                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | organize | undo_organize | info | zip | unzip"},
                 "path":        {"type": "STRING", "description": "File/folder path or shortcut: desktop, downloads, documents, home"},
+                "scope":       {"type": "STRING", "description": "For organize: desktop | downloads | documents | pictures | music | videos | home | <custom path>"},
+                "mode":        {"type": "STRING", "description": "For organize: by_type (default) | by_date | ai"},
+                "dry_run":     {"type": "BOOLEAN", "description": "For organize: preview only, move nothing"},
+                "include_subfolders": {"type": "BOOLEAN", "description": "For organize: also process files in subfolders"},
                 "destination": {"type": "STRING", "description": "Destination path for move/copy/zip/unzip"},
                 "new_name":    {"type": "STRING", "description": "New name for rename"},
                 "content":     {"type": "STRING", "description": "Content for create_file/write"},
@@ -805,6 +815,55 @@ TOOL_DECLARATIONS = [
                 "value":  {"type": "NUMBER", "description": "Level for set_level (e.g. brightness percent 0-100)"}
             },
             "required": ["action"]
+        }
+    },
+    {
+        "name": "send_sms",
+        "description": (
+            "Sends an SMS through the connected Android phone (the Kaizumi bridge "
+            "app). Requires a phone to be connected to the PC bridge. "
+            "Use for 'text X number saying Y', 'send an SMS to ...'. "
+            "If no phone is connected, explain that the user needs to open the "
+            "Kaizumi app and connect first."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "phone":   {"type": "STRING", "description": "Recipient phone number (international format preferred)"},
+                "message": {"type": "STRING", "description": "SMS text to send"}
+            },
+            "required": ["phone", "message"]
+        }
+    },
+    {
+        "name": "read_notifications",
+        "description": (
+            "Reads the notifications currently visible on the connected Android "
+            "phone (WhatsApp, Telegram, Messenger, calls, etc). Requires the Kaizumi "
+            "bridge app to be connected and notification access to be enabled on the "
+            "phone. Use when the user asks 'check my phone notifications', "
+            "'did I get any messages'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "limit": {"type": "INTEGER", "description": "Max number of notifications to return (default: 10)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "phone_info",
+        "description": (
+            "Returns status information about the connected Android phone: model, "
+            "Android version, battery level, network type and free memory. "
+            "Use when the user asks 'how is my phone', 'what is the battery on my "
+            "phone', 'phone status'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+            "required": []
         }
     },
 ]
@@ -1423,6 +1482,24 @@ class JarvisLive:
                         value=args.get("value"),
                     ),
                 )
+                result = r
+
+            elif name in ("send_sms", "read_notifications", "phone_info"):
+                from remote_bridge import (
+                    send_sms_via_phone, read_notifications_via_phone, phone_info_via_phone,
+                )
+                if name == "send_sms":
+                    r = await loop.run_in_executor(
+                        None,
+                        lambda: send_sms_via_phone(self, args.get("phone", ""), args.get("message", "")),
+                    )
+                elif name == "read_notifications":
+                    r = await loop.run_in_executor(
+                        None,
+                        lambda: read_notifications_via_phone(self, args.get("limit", 10)),
+                    )
+                else:
+                    r = await loop.run_in_executor(None, lambda: phone_info_via_phone(self))
                 result = r
 
             else:
