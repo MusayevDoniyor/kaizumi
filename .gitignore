@@ -25,3 +25,6 @@ Thumbs.db
 models/training/
 models/hey_kaizumi_v0.1.onnx
 models/hey_kaizumi_v0.1.onnx.data
+
+# Reference clone for study (openjarvis)
+openjarvis_example/

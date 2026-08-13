@@ -3,6 +3,7 @@ import threading
 import json
 import sys
 import os
+import time
 import traceback
 from pathlib import Path
 
@@ -706,6 +707,8 @@ class JarvisLive:
         self._loop          = None
         self._is_speaking   = False
         self._speaking_lock = threading.Lock()
+        self._last_play_ts  = 0.0
+        self._turn_complete = False
         self.ui.on_text_command = self._on_text_command
         self.remote_clients = set()
         self.remote_port    = None
@@ -716,10 +719,10 @@ class JarvisLive:
             pass
 
     def _on_wake_detect(self):
-        """Excited when the wake word is heard — un-mute and listen."""
+        """Excited when the wake word is heard — un-mute and listen (barge-in)."""
         try:
             self.ui.muted = False
-            self.ui.set_state("LISTENING")
+            self.set_speaking(False)
             self.ui.write_log("SYS: Wake word heard — listening.")
         except Exception as e:
             print(f"[WakeWord] ⚠️ {e}")
@@ -1091,10 +1094,7 @@ class JarvisLive:
                 jarvis_speaking = self._is_speaking
             if not jarvis_speaking and not self.ui.muted:
                 data = indata.tobytes()
-                loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
-                    {"data": data, "mime_type": "audio/pcm"}
-                )
+                loop.call_soon_threadsafe(self._safe_put_mic, data)
 
         try:
             with sd.InputStream(
@@ -1110,6 +1110,22 @@ class JarvisLive:
         except Exception as e:
             print(f"[KAIZUMI] ❌ Mic: {e}")
             raise
+
+    def _safe_put_mic(self, data):
+        try:
+            self.out_queue.put_nowait({"data": data, "mime_type": "audio/pcm"})
+        except asyncio.QueueFull:
+            pass
+
+    async def _watch_speaking(self):
+        while True:
+            await asyncio.sleep(2)
+            with self._speaking_lock:
+                speaking = self._is_speaking
+                last     = self._last_play_ts
+            if speaking and last and time.monotonic() - last > 25:
+                print("[KAIZUMI] ⏱ Speaking watchdog fired — force-cleared")
+                self.set_speaking(False)
 
     async def _receive_audio(self):
         print("[KAIZUMI] 👂 Recv started")
@@ -1137,7 +1153,7 @@ class JarvisLive:
                                 in_buf.append(txt)
 
                         if sc.turn_complete:
-                            self.set_speaking(False)
+                            self._turn_complete = True
 
                             full_in = " ".join(in_buf).strip()
                             if full_in:
@@ -1187,8 +1203,10 @@ class JarvisLive:
         try:
             while True:
                 chunk = await self.audio_in_queue.get()
-                self.set_speaking(True)
+                if not self._is_speaking:
+                    self.set_speaking(True)
                 await asyncio.to_thread(stream.write, chunk)
+                self._last_play_ts = time.monotonic()
                 if self.remote_clients:
                     message = bytes(chunk)
                     for ws in list(self.remote_clients):
@@ -1197,6 +1215,9 @@ class JarvisLive:
                         except Exception as e:
                             print(f"[Play] ⚠️ remote send: {e}")
                             self.remote_clients.discard(ws)
+                if self.audio_in_queue.empty() and self._turn_complete:
+                    self._turn_complete = False
+                    self.set_speaking(False)
         except Exception as e:
             print(f"[KAIZUMI] ❌ Play: {e}")
             raise
@@ -1224,7 +1245,7 @@ class JarvisLive:
                     self.session        = session
                     self._loop          = asyncio.get_event_loop()
                     self.audio_in_queue = asyncio.Queue()
-                    self.out_queue      = asyncio.Queue(maxsize=10)
+                    self.out_queue      = asyncio.Queue(maxsize=64)
 
                     print("[KAIZUMI] ✅ Connected.")
                     self.ui.set_state("LISTENING")
@@ -1238,6 +1259,7 @@ class JarvisLive:
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())
                     tg.create_task(self._play_audio())
+                    tg.create_task(self._watch_speaking())
 
             except Exception as e:
                 print(f"[KAIZUMI] ⚠️ {e}")

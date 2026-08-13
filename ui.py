@@ -75,6 +75,8 @@ class JarvisUI:
 
         self.typing_queue = deque()
         self.is_typing    = False
+        self._ui_deferred = deque()
+        self._main_thread = threading.current_thread()
 
         # Klavye girişinden komutu iletmek için callback — main.py atar
         self.on_text_command = None
@@ -224,7 +226,16 @@ class JarvisUI:
 
     # ── Durum yönetimi ────────────────────────────────────────────────────────
 
+    def _safe_ui(self, fn, *args):
+        """Run a UI mutation on the Tk main thread only (thread-safe)."""
+        if threading.current_thread() is self._main_thread:
+            return fn(*args)
+        self._ui_deferred.append((fn, args))
+
     def set_state(self, state: str):
+        self._safe_ui(self._set_state, state)
+
+    def _set_state(self, state: str):
         """
         main.py'den çağrılır.
         state: LISTENING | SPEAKING | THINKING | MUTED | ONLINE | PROCESSING
@@ -271,6 +282,12 @@ class JarvisUI:
     # ── Animasyon döngüsü ─────────────────────────────────────────────────────
 
     def _animate(self):
+        while self._ui_deferred:
+            _fn, _args = self._ui_deferred.popleft()
+            try:
+                _fn(*_args)
+            except Exception:
+                pass
         self.tick += 1
         t   = self.tick
         now = time.time()
@@ -515,6 +532,9 @@ class JarvisUI:
     # ── Log ───────────────────────────────────────────────────────────────────
 
     def write_log(self, text: str):
+        self._safe_ui(self._write_log, text)
+
+    def _write_log(self, text: str):
         self.typing_queue.append(text)
         tl = text.lower()
         if tl.startswith("you:"):
