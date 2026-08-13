@@ -50,7 +50,25 @@ class WakeWordService:
 
     @property
     def available(self) -> bool:
-        return _OWW_OK and self._model_path is not None
+        return _OWW_OK and self._model is not None
+
+    def load(self) -> bool:
+        """Load the model so predictions work WITHOUT opening a mic stream.
+        Used by the phone bridge, which feeds PCM chunks manually."""
+        if self._model is not None:
+            return True
+        if not _OWW_OK:
+            return False
+        candidate = str(MODELS_DIR / self._model_file)
+        if not Path(candidate).exists():
+            return False
+        try:
+            self._model = Model(wakeword_model_paths=[candidate])
+            self._model_path = candidate
+            return True
+        except Exception as e:
+            print(f"[WakeWord] ⚠️ Load failed: {e}")
+            return False
 
     def configure(self, on_detect=None):
         self._on_detect = on_detect
@@ -129,6 +147,8 @@ class WakeWordService:
         return (None, pyaudio.paContinue)
 
     def _feed(self, block: np.ndarray):
+        if self._model is None:
+            return
         with self._lock:
             self._audio_buffer.append(block)
             if len(self._audio_buffer) > SAMPLE_NUMS:

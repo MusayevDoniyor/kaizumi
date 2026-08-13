@@ -793,7 +793,7 @@ TOOL_DECLARATIONS = [
                 "filename":  {"type": "STRING", "description": "File name without extension"},
                 "sheet_name": {"type": "STRING", "description": "Optional sheet name (default: Sheet1)"},
                 "headers":   {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Column headers"},
-                "rows":      {"type": "ARRAY", "items": {"type": "ARRAY"}, "description": "Data rows; each row is an array of cell values"}
+                "rows":      {"type": "ARRAY", "items": {"type": "ARRAY", "items": {"type": "STRING"}}, "description": "Data rows; each row is an array of cell values"}
             },
             "required": ["filename"]
         }

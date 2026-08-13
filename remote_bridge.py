@@ -178,7 +178,10 @@ def _phone_wake_service(on_detect):
         from actions.wake_word import WakeWordService
         svc = WakeWordService(model_file="hey_jarvis_v0.1.onnx", phrase="Hey Jarvis")
         svc.configure(on_detect)
-        return svc
+        if svc.load():
+            return svc
+        print("[Bridge] ℹ️ Phone wake skipped (model not loaded).")
+        return None
     except Exception as e:
         print(f"[Bridge] ⚠️ Phone wake unavailable: {e}")
         return None
