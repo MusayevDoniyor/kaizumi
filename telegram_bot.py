@@ -209,6 +209,8 @@ BOT_COMMANDS = [
     {"command": "start",       "description": "Boshlash / yordam"},
     {"command": "help",        "description": "Yordam va misollar"},
     {"command": "status",      "description": "Kaizumi statusi (mute/holat)"},
+    {"command": "mode",        "description": "Rejimni o'zgartirish (girlfriend, butler...)"},
+    {"command": "voice",       "description": "Ovozni o'zgartirish (Gemini ovozlari)"},
     {"command": "mute",        "description": "Mikrofonni o'chirish"},
     {"command": "unmute",      "description": "Mikrofonni yoqish"},
     {"command": "screenshot",  "description": "Ekran rasmini yuborish"},

@@ -97,7 +97,8 @@ TG_HELP_TEXT = (
     "• <code>google_auth</code> (Google ulash) / <code>google tekshir</code>\n\n"
     "🎤 Ovozli xabar yuborsangiz ham tushunaman.\n"
     "⚡ Tezkor tugmalar va <code>/status</code>, <code>/mute</code>, "
-    "<code>/unmute</code>, <code>/screenshot</code>, <code>/help</code>."
+    "<code>/unmute</code>, <code>/mode</code>, <code>/voice</code>, "
+    "<code>/screenshot</code>, <code>/help</code>."
 )
 
 TG_QUICK_KEYBOARD = {
@@ -108,8 +109,46 @@ TG_QUICK_KEYBOARD = {
             {"text": "🔊 Unmute", "callback_data": "/unmute"},
         ],
         [
+            {"text": "🧭 Mode", "callback_data": "/mode"},
+            {"text": "🗣 Voice", "callback_data": "/voice"},
+        ],
+        [
             {"text": "📸 Screenshot", "callback_data": "/screenshot"},
             {"text": "❓ Help", "callback_data": "/help"},
+        ],
+    ]
+}
+
+TG_MODE_KEYBOARD = {
+    "inline_keyboard": [
+        [
+            {"text": "😐 Normal",   "callback_data": "/mode normal"},
+            {"text": "💕 Girlfriend", "callback_data": "/mode girlfriend"},
+        ],
+        [
+            {"text": "🤪 Crazy Friend", "callback_data": "/mode crazy_friend"},
+            {"text": "🎩 Butler",       "callback_data": "/mode butler"},
+        ],
+        [
+            {"text": "🤝 Friend",  "callback_data": "/mode friend"},
+            {"text": "😎 Casual",  "callback_data": "/mode casual"},
+        ],
+    ]
+}
+
+TG_VOICE_KEYBOARD = {
+    "inline_keyboard": [
+        [
+            {"text": "🎙 Aoede (ayol)",  "callback_data": "/voice Aoede"},
+            {"text": "🎙 Zephyr (ayol)", "callback_data": "/voice Zephyr"},
+        ],
+        [
+            {"text": "🎙 Kore (ayol)",   "callback_data": "/voice Kore"},
+            {"text": "🎙 Charon (erkak)","callback_data": "/voice Charon"},
+        ],
+        [
+            {"text": "🎙 Fenrir (erkak)","callback_data": "/voice Fenrir"},
+            {"text": "🎙 Puck (erkak)",  "callback_data": "/voice Puck"},
         ],
     ]
 }
@@ -162,13 +201,60 @@ def _ensure_core_deps():
     raise SystemExit(msg)
 
 
+def _normalize_mode(text) -> str:
+    """Map user wording to a canonical mode id, or '' if unknown."""
+    m = (str(text or "").strip().lower()
+         .replace("-", " ").replace("_", " "))
+    aliases = {
+        "normal": "normal", "default": "normal", "standard": "normal",
+        "regular": "normal", "profonal": "normal", "professional": "normal",
+        "romantic": "girlfriend", "romantic girlfriend": "girlfriend",
+        "girlfriend": "girlfriend", "girl": "girlfriend",
+        "crazy friend": "crazy_friend", "crazy_friend": "crazy_friend",
+        "crazy": "crazy_friend", "funny friend": "crazy_friend",
+        "friend": "friend", "friendly": "friend",
+        "butler": "butler", "batman's butler": "butler", "butler mode": "butler",
+        "alfred": "butler", "servant": "butler",
+        "casual": "casual", "chill": "casual",
+    }
+    m = aliases.get(m, m)
+    valid = {"normal", "girlfriend", "crazy_friend", "butler", "friend", "casual"}
+    return m if m in valid else ""
+
+
+VOICES = {
+    "Aoede":  "Gemini ovozlari — yumshoq ayol",
+    "Charon": "Gemini ovozlari — chuqur erkak",
+    "Fenrir": "Gemini ovozlari — qattiq erkak",
+    "Kore":   "Gemini ovozlari — jonli ayol",
+    "Puck":   "Gemini ovozlari — bahaybat erkak",
+    "Zephyr": "Gemini ovozlari — engil ayol",
+}
+VOICE_NAMES = ["Aoede", "Charon", "Fenrir", "Kore", "Puck", "Zephyr"]
+
+
+def _normalize_voice(text) -> str:
+    """Map user wording to a canonical Gemini voice name, or '' if unknown."""
+    v = (str(text or "").strip().lower()
+         .replace("-", " ").replace("_", " "))
+    aliases = {
+        "default": "Aoede", "auto": "Aoede", "standart": "Aoede",
+        "normal": "Aoede", "classic": "Aoede",
+        "aoede": "Aoede", "charon": "Charon", "fenrir": "Fenrir",
+        "kore": "Kore", "puck": "Puck", "zephyr": "Zephyr",
+        "ayol": "Aoede", "erkak": "Charon",
+    }
+    v = aliases.get(v, v.title())
+    return v if v in VOICE_NAMES else ""
+
+
 def _get_style_from_memory(memory: dict | None) -> tuple[str, str]:
     """
     Returns (mode, mood).
     Stored under preferences.assistant_mode / preferences.assistant_mood.
     """
     if not memory:
-        return ("butler", "calm")
+        return ("normal", "calm")
 
     prefs = memory.get("preferences", {}) if isinstance(memory, dict) else {}
 
@@ -178,18 +264,24 @@ def _get_style_from_memory(memory: dict | None) -> tuple[str, str]:
     mode = mode_entry.get("value") if isinstance(mode_entry, dict) else mode_entry
     mood = mood_entry.get("value") if isinstance(mood_entry, dict) else mood_entry
 
-    mode = (str(mode or "").strip().lower() or "butler")
+    mode = _normalize_mode(mode) or "normal"
     mood = (str(mood or "").strip().lower() or "calm")
 
-    valid_modes = {"girlfriend", "friend", "butler", "casual"}
     valid_moods = {"calm", "playful", "romantic", "strict"}
 
-    if mode not in valid_modes:
-        mode = "butler"
     if mood not in valid_moods:
         mood = "calm"
 
     return (mode, mood)
+
+
+def _get_voice_from_memory(memory: dict | None) -> str:
+    """Returns the saved Gemini voice name (defaults to Aoede)."""
+    prefs = memory.get("preferences", {}) if isinstance(memory, dict) else {}
+    entry = prefs.get("assistant_voice")
+    voice = entry.get("value") if isinstance(entry, dict) else entry
+    voice = _normalize_voice(voice)
+    return voice or "Aoede"
 
 
 def _get_api_key() -> str:
@@ -593,19 +685,42 @@ TOOL_DECLARATIONS = [
         "description": (
             "Sets Kaizumi's conversation mode/persona. "
             "Use when the user says things like: "
-            "'girlfriend mode', 'friend mode', 'butler mode', 'casual mode', "
-            "'be more like Batman's butler', 'switch your mode'. "
-            "This persists across sessions."
+            "'girlfriend mode', 'normal mode', 'crazy friend', 'butler mode', "
+            "'engaging mode', 'switch your mode', 'o'zgartir'. "
+            "This persists across sessions. Modes: "
+            "normal | girlfriend | crazy_friend | butler | friend | casual."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "mode": {
                     "type": "STRING",
-                    "description": "One of: girlfriend | friend | butler | casual"
+                    "description": "One of: normal | girlfriend | crazy_friend | butler | friend | casual"
                 }
             },
             "required": ["mode"]
+        }
+    },
+    {
+        "name": "set_voice",
+        "description": (
+            "Changes Kaizumi's speaking voice (Gemini prebuilt voices). "
+            "Use when the user asks to change/switch the voice, or says "
+            "'ovozni o'zgartir', 'boshqa ovoz', 'speak with a male voice', "
+            "'sounds too robotic'. This persists across sessions and takes "
+            "effect shortly. Voices: "
+            "Aoede (soft female) | Charon (deep male) | Fenrir (deep male) | "
+            "Kore (lively female) | Puck (resonant male) | Zephyr (light female)."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "voice": {
+                    "type": "STRING",
+                    "description": "One of: Aoede | Charon | Fenrir | Kore | Puck | Zephyr"
+                }
+            },
+            "required": ["voice"]
         }
     },
     {
@@ -1423,6 +1538,24 @@ class JarvisLive:
             self._is_speaking = False
         self._set_phase(PHASE_LISTENING)
 
+    def _schedule_session_reload(self):
+        """Mode/voice changed — close the live session shortly so run() reconnects
+        and re-applies the system prompt / speech config from memory."""
+        if not self._loop or not self.session:
+            return
+
+        async def _reload_soon():
+            await asyncio.sleep(2.5)
+            try:
+                await self.session.close()
+            except Exception:
+                pass
+
+        try:
+            asyncio.run_coroutine_threadsafe(_reload_soon(), self._loop)
+        except Exception:
+            pass
+
     def _update_rolling(self, user_text: str, kaizumi_text: str):
         if not user_text and not kaizumi_text:
             return
@@ -1514,12 +1647,22 @@ class JarvisLive:
             return "ok"
 
         def _set_mode(args):
-            mode = str(args.get("mode", "")).strip().lower()
-            valid = {"girlfriend", "friend", "butler", "casual"}
-            if mode not in valid:
-                return f"Invalid mode '{mode}'. Use: girlfriend, friend, butler, casual."
+            mode = _normalize_mode(args.get("mode", ""))
+            if not mode:
+                return ("Invalid mode. Use: normal, girlfriend, crazy_friend, "
+                        "butler, friend, casual.")
             update_memory({"preferences": {"assistant_mode": {"value": mode}}})
+            self._schedule_session_reload()
             return f"Mode set to: {mode}."
+
+        def _set_voice(args):
+            voice = _normalize_voice(args.get("voice", ""))
+            if not voice:
+                return ("Invalid voice. Use: Aoede, Charon, Fenrir, Kore, "
+                        "Puck, Zephyr.")
+            update_memory({"preferences": {"assistant_voice": {"value": voice}}})
+            self._schedule_session_reload()
+            return f"Voice set to: {voice}."
 
         def _set_mood(args):
             mood = str(args.get("mood", "")).strip().lower()
@@ -1601,6 +1744,7 @@ class JarvisLive:
             "wake_word":         (_wake, 45),
             "save_memory":       (_save_memory, 10),
             "set_mode":          (_set_mode, 10),
+            "set_voice":         (_set_voice, 10),
             "set_mood":          (_set_mood, 10),
             "gmail":             (lambda a: gmail_action(parameters=a, response=None, player=ui), 60),
             "read_pdf":          (lambda a: read_pdf_action(parameters=a, response=None, player=ui), 60),
@@ -1639,6 +1783,7 @@ class JarvisLive:
         memory     = load_memory()
         mem_str    = format_memory_for_prompt(memory)
         mode, mood = _get_style_from_memory(memory)
+        voice      = _get_voice_from_memory(memory)
         sys_prompt = _load_system_prompt()
 
         now      = datetime.now()
@@ -1653,6 +1798,7 @@ class JarvisLive:
             "[ASSISTANT MODE & MOOD]\n"
             f"Mode: {mode}\n"
             f"Mood: {mood}\n"
+            f"Voice: {voice}\n"
             "Follow the mode/mood rules from the system prompt.\n\n"
         )
 
@@ -1678,7 +1824,7 @@ class JarvisLive:
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Aoede"
+                        voice_name=voice
                     )
                 )
             ),
@@ -1707,21 +1853,39 @@ class JarvisLive:
                 response={"result": "ok", "silent": True}
             )
 
-        # ── set_mode / set_mood: persist style across sessions ───────────────
+        # ── set_mode / set_mood / set_voice: persist style across sessions ──
         if name == "set_mode":
-            mode = str(args.get("mode", "")).strip().lower()
-            valid = {"girlfriend", "friend", "butler", "casual"}
-            if mode not in valid:
+            mode = _normalize_mode(args.get("mode", ""))
+            if not mode:
                 return types.FunctionResponse(
                     id=fc.id, name=name,
-                    response={"result": f"Invalid mode '{mode}'. Use: girlfriend, friend, butler, casual."}
+                    response={"result": ("Invalid mode. Use: normal, girlfriend, "
+                                         "crazy_friend, butler, friend, casual.")}
                 )
             update_memory({"preferences": {"assistant_mode": {"value": mode}}})
+            self._schedule_session_reload()
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             return types.FunctionResponse(
                 id=fc.id, name=name,
                 response={"result": f"Mode set to: {mode}."}
+            )
+
+        if name == "set_voice":
+            voice = _normalize_voice(args.get("voice", ""))
+            if not voice:
+                return types.FunctionResponse(
+                    id=fc.id, name=name,
+                    response={"result": ("Invalid voice. Use: Aoede, Charon, "
+                                         "Fenrir, Kore, Puck, Zephyr.")}
+                )
+            update_memory({"preferences": {"assistant_voice": {"value": voice}}})
+            self._schedule_session_reload()
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": f"Voice set to: {voice}."}
             )
 
         if name == "set_mood":
@@ -2061,13 +2225,14 @@ class JarvisLive:
         memory     = load_memory()
         mem_str    = format_memory_for_prompt(memory)
         mode, mood = _get_style_from_memory(memory)
+        voice      = _get_voice_from_memory(memory)
         now        = datetime.now()
         parts = [
             "[CURRENT DATE & TIME]",
             f"Right now it is: {now.strftime('%A, %B %d, %Y — %I:%M %p')}",
             "",
             "[ASSISTANT MODE & MOOD]",
-            f"Mode: {mode}  Mood: {mood}",
+            f"Mode: {mode}  Mood: {mood}  Voice: {voice}",
             "",
         ]
         recent = self._rolling_digest(limit=1000)
@@ -2167,17 +2332,17 @@ class JarvisLive:
     async def _telegram_quick_command(self, token, chat, text: str):
         """Instant slash-commands and inline-keyboard callbacks.
 
-        Returns (handled, result); result is None | str | bytes(photo)."""
+        Returns (handled, result, reply_markup); result is None | str | bytes(photo)."""
         import telegram_bot as tg
         low = text.lower().strip()
         if low in ("/help", "/start", "help", "start"):
             tg.send_message(token, chat, TG_HELP_TEXT,
                             reply_markup=TG_QUICK_KEYBOARD)
-            return True, None
+            return True, None, None
         if low in ("/stop",):
-            return True, None
+            return True, None, None
         if low == "/status":
-            return True, await self._telegram_status()
+            return True, await self._telegram_status(), None
         if low == "/mute":
             if not self.ui.muted:
                 self.ui.muted = True
@@ -2185,26 +2350,56 @@ class JarvisLive:
                 self.ui.write_log("SYS: Telegram: microphone muted.")
                 self.ui._safe_ui(self.ui._draw_mute_button)
             return True, ("🔇 Mikrofon o'chirildi (MUTED). "
-                          "Endi faqat matn/Telegram orqali gapiryapman.")
+                          "Endi faqat matn/Telegram orqali gapiryapman."), None
         if low == "/unmute":
             if self.ui.muted:
                 self.ui.muted = False
                 self.ui.set_state("LISTENING")
                 self.ui.write_log("SYS: Telegram: microphone active.")
                 self.ui._safe_ui(self.ui._draw_mute_button)
-            return True, "🎤 Mikrofon yoniq (LIVE). Gaplashavering."
+            return True, "🎤 Mikrofon yoniq (LIVE). Gaplashavering.", None
         if low == "/screenshot":
             shot = await asyncio.to_thread(_take_screenshot_bytes)
             if shot:
-                return True, shot
-            return True, "📸 Screenshot olishning iloji bo'lmadi (pyautogui?)."
-        return False, None
+                return True, shot, None
+            return True, "📸 Screenshot olishning iloji bo'lmadi (pyautogui?).", None
+        if low == "/mode" or low.startswith("/mode "):
+            mode, mood = _get_style_from_memory(load_memory())
+            rest = text.strip()[len("/mode"):].strip()
+            if not rest:
+                return True, (f"🧭 Hozirgi rejim: <b>{tg.html_escape(mode)}</b> "
+                              f"(kayfiyat: {tg.html_escape(mood)})\n"
+                              "Tanlang 👇"), TG_MODE_KEYBOARD
+            new_mode = _normalize_mode(rest)
+            if not new_mode:
+                return True, ("❌ Noto'g'ri rejim. Tanlang: normal, girlfriend, "
+                              "crazy_friend, butler, friend, casual."), None
+            update_memory({"preferences": {"assistant_mode": {"value": new_mode}}})
+            self._schedule_session_reload()
+            return True, f"🔄 Rejim o'zgartirildi: <b>{tg.html_escape(new_mode)}</b>.", None
+        if low == "/voice" or low.startswith("/voice "):
+            current = _get_voice_from_memory(load_memory())
+            rest = text.strip()[len("/voice"):].strip()
+            if not rest:
+                desc = "\n".join(f"• <b>{v}</b> — {VOICES[v]}" for v in VOICE_NAMES)
+                return True, (f"🗣 Hozirgi ovoz: <b>{tg.html_escape(current)}</b>\n"
+                              f"{desc}\nTanlang 👇"), TG_VOICE_KEYBOARD
+            new_voice = _normalize_voice(rest)
+            if not new_voice:
+                return True, ("❌ Noto'g'ri ovoz. Tanlang: " +
+                              ", ".join(VOICE_NAMES) + "."), None
+            update_memory({"preferences": {"assistant_voice": {"value": new_voice}}})
+            self._schedule_session_reload()
+            return True, (f"🎙 Ovoz o'zgartirildi: <b>{tg.html_escape(new_voice)}</b>. "
+                          "Bir necha soniyada yangi ovoz bilan ulanyapman..."), None
+        return False, None, None
 
     async def _telegram_status(self) -> str:
         import telegram_bot as tg
         from datetime import datetime
         phase   = self._current_phase().upper()
         mode, mood = _get_style_from_memory(load_memory())
+        voice   = _get_voice_from_memory(load_memory())
         clients = len(getattr(self, "remote_clients", None) or ())
         now     = datetime.now().strftime("%A, %B %d, %Y — %I:%M %p")
         return (
@@ -2214,18 +2409,19 @@ class JarvisLive:
             f"🔄 Holat: <b>{tg.html_escape(phase)}</b>\n"
             f"📱 Ulangan telefonlar: {clients}\n"
             f"🧭 Rejim: <b>{tg.html_escape(mode)}</b>  |  "
-            f"Kayfiyat: <b>{tg.html_escape(mood)}</b>"
+            f"Kayfiyat: <b>{tg.html_escape(mood)}</b>\n"
+            f"🗣 Ovoz: <b>{tg.html_escape(voice)}</b>"
         )
 
     async def _telegram_handle_text(self, token, chat, text: str):
         import telegram_bot as tg
-        handled, result = await self._telegram_quick_command(token, chat, text)
+        handled, result, reply_markup = await self._telegram_quick_command(token, chat, text)
         if handled:
             if isinstance(result, bytes):
                 tg.send_photo(token, chat, result,
                               caption="📸 Hozirgi ekran, sir.")
             elif result:
-                tg.send_message(token, chat, result)
+                tg.send_message(token, chat, result, reply_markup=reply_markup)
             return
         tg.send_typing(token, chat)
         placeholder = tg.send_message(token, chat, "⏳ ...") or {}
