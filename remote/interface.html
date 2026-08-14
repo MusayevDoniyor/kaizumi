@@ -147,11 +147,9 @@
         </button>
       </div>
       <div id="hint">
-        Same WiFi, same PC. If mic is blocked, Chrome → this site → allow
-        microphone.<br />
-        Android tip: if mic won't start over plain HTTP, use
-        <b>adb reverse tcp:8765 tcp:8765</b> then open <b>localhost:8765</b>, or
-        add this IP to chrome://flags → "Insecure origins treated as secure".
+        Works on LAN or over the internet (public tunnel URL). If the mic is
+        blocked, use an HTTPS URL (the tunnel is HTTPS — mic works).<br />
+        For SMS &amp; notifications you need the native Android app.
       </div>
     </div>
 
@@ -170,10 +168,7 @@
         connected = false;
 
       const WS_PROTO = location.protocol === "https:" ? "wss://" : "ws://";
-      const WS_PORT =
-        Number(window.__WS_PORT__) ||
-        (location.port ? Number(location.port) : 8765);
-      const WS_URL = WS_PROTO + location.hostname + ":" + WS_PORT + "/ws";
+      const WS_URL = WS_PROTO + location.host + "/ws";
 
       function setStatus(text, ok) {
         statusEl.innerHTML = text;

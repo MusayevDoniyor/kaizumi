@@ -2343,7 +2343,7 @@ class JarvisLive:
             try:
                 from remote_bridge import start_bridge
                 bridge = await start_bridge(self, self.remote_port)
-                log(f"Bridge ON (ports 8765/8766, LAN + adb)")
+                log(f"Bridge ON (port {self.remote_port}, page + /ws)")
             except Exception as e:
                 log(f"Bridge FAILED: {e}", level="ERROR")
                 print(f"[Bridge] ⚠️ Could not start bridge: {e}")
@@ -2405,7 +2405,7 @@ class JarvisLive:
                     pass
             if bridge:
                 from remote_bridge import close_bridge
-                close_bridge(*bridge)
+                close_bridge(bridge)
 
 
 def _tk_exception_handler(exc_type, exc_value, tb):

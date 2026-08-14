@@ -19,7 +19,6 @@
 import json
 import threading
 import uuid
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REMOTE_HTML_PATH = Path(__file__).resolve().parent / "remote" / "interface.html"
@@ -163,28 +162,6 @@ def ring_phone_via_phone(jarvis) -> str:
     return "Ringing your phone now — check the phone, sir!"
 
 
-class _PageHandler(BaseHTTPRequestHandler):
-    ws_port = DEFAULT_PORT
-    html    = ""
-
-    def do_GET(self):
-        if self.path in ("/", "/remote.html", "/index.html"):
-            body = self.html.replace("__WS_PORT__", str(self.ws_port)).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            self.send_response(404)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-    def log_message(self, *args):
-        pass
-
-
 def _phone_wake_service(on_detect):
     """A wake-word service fed by the PHONE's mic instead of the PC's."""
     try:
@@ -203,16 +180,23 @@ def _phone_wake_service(on_detect):
 async def start_bridge(jarvis, port: int = DEFAULT_PORT):
     """Start the remote bridge bound to a JarvisLive instance.
 
+    Everything (HTML page + WebSocket) is served on a SINGLE port so the
+    whole bridge can be exposed through one public tunnel. The phone page
+    connects its WebSocket to the same origin (/ws), which works both on the
+    LAN and behind an HTTPS tunnel.
+
     jarvis must expose: remote_clients (set), ui (muted flag + write_log),
     out_queue (asyncio.Queue of audio media dicts), session.
     """
     from websockets.asyncio.server import serve
 
-    _PageHandler.ws_port = port
-    _PageHandler.html    = REMOTE_HTML
-    httpd     = ThreadingHTTPServer(("0.0.0.0", port + 1), _PageHandler)
-    httpd_thread = threading.Thread(target=httpd.serve_forever, daemon=True, name="BridgeHttp")
-    httpd_thread.start()
+    async def _process_request(connection, request):
+        path = request.path
+        if path in ("/", "/remote.html", "/index.html"):
+            return connection.respond(200, REMOTE_HTML)
+        if path in ("/favicon.ico",):
+            return connection.respond(404, "not found")
+        return None  # allow WebSocket upgrade (any path, e.g. /ws)
 
     # Phone-mic wake word engine (only listens while a phone is connected).
     phone_wake_lock = threading.Lock()
@@ -309,26 +293,29 @@ async def start_bridge(jarvis, port: int = DEFAULT_PORT):
                 jarvis.ui.write_log("SYS: 📱 Remote off — local mode restored.")
             print("[Bridge] 🎧 Phone disconnected")
 
-    server = await serve(handler, "0.0.0.0", port)
+    server = await serve(handler, "0.0.0.0", port,
+                         process_request=_process_request)
     print(
-        f"[Bridge] 📱 Phone bridge ON — open http://<PC-IP>:{port + 1} on your phone "
-        f"(WebSocket on :{port})"
+        f"[Bridge] 📱 Phone bridge ON — http://<PC-IP>:{port} "
+        f"(page + WebSocket /ws on the same port)"
     )
-    return server, httpd, httpd_thread
+    return server
 
 
-def close_bridge(server, httpd, httpd_thread) -> None:
+def close_bridge(server, httpd=None, httpd_thread=None) -> None:
     """Shut the bridge down and free its ports (called when the app exits)."""
     try:
         server.close()
     except Exception:
         pass
-    try:
-        httpd.shutdown()
-        httpd.server_close()
-    except Exception:
-        pass
-    try:
-        httpd_thread.join(timeout=2)
-    except Exception:
-        pass
+    if httpd is not None:
+        try:
+            httpd.shutdown()
+            httpd.server_close()
+        except Exception:
+            pass
+    if httpd_thread is not None:
+        try:
+            httpd_thread.join(timeout=2)
+        except Exception:
+            pass
