@@ -66,6 +66,7 @@ from actions.autostart         import autostart_action
 from actions.vision_click      import vision_click_action
 from actions.document_qa       import read_document as read_document_action, document_qa as document_qa_action
 from actions.monitor           import monitor_action, check_rules as check_monitor_rules, check_email_watch, email_watch_action
+from actions.guardian          import guardian_action, check_guardian, battery_health
 from actions.translate         import translate_action
 from actions.media_control     import media_control_action
 from actions.calendar          import calendar_action
@@ -1178,6 +1179,27 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "pc_health",
+        "description": (
+            "PC Health Guardian: automatic proactive alerts for battery, disk "
+            "space, RAM, CPU, temperature and backup reminders — works out of "
+            "the box with smart defaults, no setup needed. "
+            "Actions: status | report | enable | disable | check | backup | "
+            "set | reset. Use for 'pc health report', 'how is my battery', "
+            "'battery health', 'health check', 'backup done', 'stop monitoring', "
+            "'warn me about low disk'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "status | report | enable | disable | check | backup | set | reset (default: status)"},
+                "key":    {"type": "STRING", "description": "Setting to change with 'set': battery_low | battery_full_plugged | disk_min_free_gb | ram_high | cpu_high | temp_high | backup_days | cooldown"},
+                "value":  {"type": "NUMBER", "description": "New numeric value for 'set'"}
+            },
+            "required": []
+        }
+    },
+    {
         "name": "read_document",
         "description": (
             "Reads any local document or web page and shows a preview: PDF, TXT, "
@@ -1359,6 +1381,7 @@ class JarvisLive:
         self.audio_in_queue = None
         self.out_queue      = None
         self._loop          = None
+        self._send_lock     = None
         self._is_speaking   = False
         self._speaking_lock = threading.Lock()
         self._last_play_ts  = 0.0
@@ -1488,15 +1511,15 @@ class JarvisLive:
             import traceback; traceback.print_exc()
 
     def _on_text_command(self, text: str):
-        if not self._loop or not self.session:
+        if not self._loop or not self.session or not self._send_lock:
             return
-        asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"parts": [{"text": text}]},
-                turn_complete=True
-            ),
-            self._loop
-        )
+        async def _send():
+            async with self._send_lock:
+                await self.session.send_client_content(
+                    turns={"parts": [{"text": text}]},
+                    turn_complete=True
+                )
+        asyncio.run_coroutine_threadsafe(_send(), self._loop)
 
     def set_speaking(self, value: bool):
         with self._speaking_lock:
@@ -1620,15 +1643,15 @@ class JarvisLive:
             print(f"[Memory] ⚠️ Could not persist summary: {e}")
 
     def speak(self, text: str):
-        if not self._loop or not self.session:
+        if not self._loop or not self.session or not self._send_lock:
             return
-        asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"parts": [{"text": text}]},
-                turn_complete=True
-            ),
-            self._loop
-        )
+        async def _send():
+            async with self._send_lock:
+                await self.session.send_client_content(
+                    turns={"parts": [{"text": text}]},
+                    turn_complete=True
+                )
+        asyncio.run_coroutine_threadsafe(_send(), self._loop)
 
     def _log_tool_error(self, tool_name: str, tr: ToolResult):
         short = str(tr.content)[:120]
@@ -1770,6 +1793,7 @@ class JarvisLive:
             "autostart":         (lambda a: autostart_action(parameters=a, response=None, player=ui), 20),
             "vision_click":      (lambda a: vision_click_action(parameters=a, response=None, player=ui), 90),
             "monitor_alerts":    (lambda a: monitor_action(parameters=a, response=None, player=ui), 15),
+            "pc_health":         (lambda a: guardian_action(parameters=a, response=None, player=ui), 15),
             "email_watch":       (lambda a: email_watch_action(parameters=a, response=None, player=ui), 15),
             "translate":         (lambda a: translate_action(parameters=a, response=None, player=ui), 45),
             "media_control":     (lambda a: media_control_action(parameters=a, response=None, player=ui), 20),
@@ -2230,6 +2254,18 @@ class JarvisLive:
             except Exception as e:
                 print(f"[Monitor] ⚠️ {e}")
             try:
+                alerts = await asyncio.to_thread(check_guardian)
+                for text in alerts:
+                    print(f"[Guardian] 🔔 {text}")
+                    self.ui.write_log(text)
+                    self.broadcast_remote({"type": "system", "text": text})
+                    from actions.notifications import notify
+                    notify(parameters={"title": "PC Health", "message": text}, player=self.ui)
+                    if self.session:
+                        self.speak(text)
+            except Exception as e:
+                print(f"[Guardian] ⚠️ {e}")
+            try:
                 for text in await asyncio.to_thread(check_email_watch):
                     print(f"[Email] 🔔 {text}")
                     self.ui.write_log(text)
@@ -2564,9 +2600,10 @@ class JarvisLive:
     async def _send_realtime(self):
         while True:
             msg = await self.out_queue.get()
-            await self.session.send_realtime_input(
-                audio=types.Blob(data=msg["data"], mime_type=msg["mime_type"])
-            )
+            async with self._send_lock:
+                await self.session.send_realtime_input(
+                    audio=types.Blob(data=msg["data"], mime_type=msg["mime_type"])
+                )
 
     async def _listen_audio(self):
         print("[KAIZUMI] 🎤 Mic started")
@@ -2758,6 +2795,7 @@ class JarvisLive:
                     ):
                         self.session        = session
                         self._loop          = asyncio.get_event_loop()
+                        self._send_lock     = asyncio.Lock()
                         self.audio_in_queue = asyncio.Queue()
                         self.out_queue      = asyncio.Queue(maxsize=64)
                         self._ready         = True

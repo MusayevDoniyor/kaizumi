@@ -230,12 +230,13 @@ async def start_bridge(jarvis, port: int = DEFAULT_PORT):
             _resolve_pending(data)
         elif mtype == "text":
             text = str(data.get("text", "")).strip()
-            if text and jarvis_.session:
+            if text and jarvis_.session and jarvis_._send_lock:
                 print(f"[Bridge] 📱 Text: {text[:80]}")
-                await jarvis_.session.send_client_content(
-                    turns={"parts": [{"text": text}]},
-                    turn_complete=True,
-                )
+                async with jarvis_._send_lock:
+                    await jarvis_.session.send_client_content(
+                        turns={"parts": [{"text": text}]},
+                        turn_complete=True,
+                    )
         elif mtype == "vision":
             import base64
             b64 = str(data.get("image", "")).strip()
