@@ -68,6 +68,8 @@ from actions.document_qa       import read_document as read_document_action, doc
 from actions.monitor           import monitor_action, check_rules as check_monitor_rules, check_email_watch, email_watch_action
 from actions.translate         import translate_action
 from actions.media_control     import media_control_action
+from actions.calendar          import calendar_action
+from actions.drive             import drive_action
 
 
 def get_base_dir():
@@ -90,7 +92,9 @@ TG_HELP_TEXT = (
     "• `CPU qancha`\n"
     "• `menga eslatma qo'y 10 daqiqadan keyin`\n"
     "• `clipboard'ni ko'rsat`\n"
-    "• `yangi email bormi`\n\n"
+    "• `yangi email bormi` / `email yubor ...`\n"
+    "• `kalendarimni ko'rsat` / `ertaga 15:00 da uchrashuv qo'y`\n"
+    "• `google_auth` (Google ulash) / `google tekshir`\n\n"
     "🎤 Ovozli xabar yuborsangiz ham tushunaman.\n"
     "Buyruqlar: /help"
 )
@@ -1113,6 +1117,76 @@ TOOL_DECLARATIONS = [
             "required": ["key"]
         }
     },
+    {
+        "name": "google_auth",
+        "description": (
+            "Starts Google authorization (Device Flow). Returns a code + URL "
+            "that the user must open on their phone (google.com/device) and "
+            "enter. Then authorization completes in the background. Use when "
+            "Google Calendar/Drive/Gmail API need connecting, or when the AI "
+            "says Google is not authorized."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "google_auth_status",
+        "description": (
+            "Reports whether Google is authorized (and which Gmail account), "
+            "or is still waiting for the user to enter the code."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "calendar",
+        "description": (
+            "Google Calendar operations: list upcoming events, add a new "
+            "event, delete an event. Use for 'what's on my calendar', 'add an "
+            "event tomorrow at 3pm', 'dushanba 10da uchrashuv qo'y', 'delete "
+            "the dentist appointment'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":      {"type": "STRING", "description": "list | add | delete (default: list)"},
+                "summary":     {"type": "STRING", "description": "Event title (for add/delete)"},
+                "start":       {"type": "STRING", "description": "Start 'YYYY-MM-DD HH:MM' or 'HH:MM' (for add)"},
+                "end":         {"type": "STRING", "description": "End time, same format (for add)"},
+                "description": {"type": "STRING", "description": "Optional details (for add)"},
+                "event_id":    {"type": "STRING", "description": "Event id (for delete)"},
+                "max_results": {"type": "INTEGER", "description": "How many events to list (default 10)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "drive",
+        "description": (
+            "Google Drive operations: list recent files, search, read a file's "
+            "text content, upload a text file. Use for 'drive'dagi fayllar', "
+            "'search my drive for X', 'read this document from drive', 'upload "
+            "this note to drive'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":     {"type": "STRING", "description": "list | search | read | upload (default: list)"},
+                "query":      {"type": "STRING", "description": "Search query (for search)"},
+                "file_id":    {"type": "STRING", "description": "File id (for read)"},
+                "name":       {"type": "STRING", "description": "File name (for upload)"},
+                "content":    {"type": "STRING", "description": "Text content (for upload)"},
+                "max_results":{"type": "INTEGER", "description": "How many files to list (default 10)"}
+            },
+            "required": []
+        }
+    },
 ]
 
 
@@ -1438,6 +1512,39 @@ class JarvisLive:
             return (f"✅ Yangi API kalit qo'shildi (jami: {n}). "
                     "Limit tugagan kalitlar avtomatik aylanadi.")
 
+        def _google_auth(args):
+            import threading
+            import google_oauth
+            if not google_oauth.is_configured():
+                return ("Google OAuth not configured. Add 'google_client_id' and "
+                        "'google_client_secret' to config/api_keys.json first, sir.")
+            if google_oauth.has_token():
+                return (f"Google allaqachon ulangan"
+                        + (f" ({google_oauth.email_address()})" if google_oauth.email_address() else "")
+                        + ". /google_auth_status bilan ko'ring.")
+            info = google_oauth.auth_start()
+            if not info.get("ok"):
+                return f"❌ {info.get('error')}"
+            device_code = info["device_code"]
+            user_code   = info["user_code"]
+            url         = info.get("verification_url", "google.com/device")
+
+            def _poll():
+                try:
+                    google_oauth.auth_poll(device_code, interval=info.get("interval", 5), timeout=600)
+                except Exception as e:
+                    print(f"[Google] auth poll error: {e}")
+            threading.Thread(target=_poll, daemon=True).start()
+            return (f"📱 Avtorizatsiya kodi: *{user_code}*\n"
+                    f"Telefonda oching: {url}\n"
+                    "Google akkauntingizga kiring va kodni kiriting.\n"
+                    "Tasdiqlagach men avtomatik saqlayman. 2-3 daqiqa kuting, "
+                    "keyin 'google tekshir' deb so'rang.")
+
+        def _google_auth_status(args):
+            import google_oauth
+            return google_oauth.status()
+
         return {
             "open_app":          (lambda a: open_app(parameters=a, response=None, player=ui), 60),
             "weather_report":    (lambda a: weather_action(parameters=a, player=ui), 60),
@@ -1480,6 +1587,10 @@ class JarvisLive:
             "read_document":     (lambda a: read_document_action(parameters=a, response=None, player=ui), 45),
             "document_qa":       (lambda a: document_qa_action(parameters=a, response=None, player=ui), 90),
             "api_add_key":       (_api_add_key, 15),
+            "google_auth":       (_google_auth, 30),
+            "google_auth_status": (_google_auth_status, 15),
+            "calendar":          (lambda a: calendar_action(parameters=a, response=None, player=ui), 60),
+            "drive":             (lambda a: drive_action(parameters=a, response=None, player=ui), 60),
         }
 
     async def _dispatch_tool(self, name: str, args: dict) -> ToolResult:

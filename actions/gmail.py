@@ -37,6 +37,12 @@ def _load_config() -> dict:
 
 
 def _creds_error(cfg: dict) -> str | None:
+    try:
+        import google_oauth
+        if google_oauth.has_token():
+            return None  # full Gmail API via OAuth — no app password needed
+    except Exception:
+        pass
     user = (cfg.get("gmail_user") or "").strip()
     pwd  = (cfg.get("gmail_app_password") or "").strip()
     if not user:
@@ -45,7 +51,9 @@ def _creds_error(cfg: dict) -> str | None:
     if not pwd:
         return ("Your Gmail app password is missing, sir. Save it as "
                 "'gmail_app_password' in config/api_keys.json "
-                "(create it at myaccount.google.com → Security → App passwords).")
+                "(create it at myaccount.google.com → Security → App passwords). "
+                "Or authorize Google OAuth (google_auth tool) — then no "
+                "app password is needed.")
     return None
 
 
@@ -122,6 +130,51 @@ def _read_gmail(cfg: dict, limit: int) -> str:
     return "Recent emails:\n" + "\n".join(lines)
 
 
+# ── Gmail API (used when Google OAuth is authorized) ────────────────────────
+
+def _gmail_service():
+    from googleapiclient.discovery import build
+    import google_oauth
+    creds = google_oauth.get_credentials()
+    if not creds:
+        return None
+    return build("gmail", "v1", credentials=creds)
+
+
+def _send_gmail_api(creds, to: str, subject: str, body: str) -> str:
+    import base64
+    from email.mime.text import MIMEText
+    svc = _gmail_service()
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["To"]      = to
+    msg["Subject"] = subject
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+    sent = svc.users().messages().send(
+        userId="me", body={"raw": raw}).execute()
+    return f"Email sent to {to} with subject '{subject}'."
+
+
+def _read_gmail_api(creds, limit: int) -> str:
+    svc = _gmail_service()
+    res = svc.users().messages().list(
+        userId="me", maxResults=min(int(limit or 5), 20),
+        labelIds=["INBOX"], q="in:inbox").execute()
+    items = res.get("messages", [])
+    if not items:
+        return "No emails in the inbox, sir."
+    lines = ["Recent emails:"]
+    for it in items:
+        full = svc.users().messages().get(
+            userId="me", id=it["id"],
+            format="metadata",
+            metadataHeaders=["From", "Subject"]).execute()
+        hdrs = {h["name"]: h["value"] for h in full.get("payload", {}).get("headers", [])}
+        frm = hdrs.get("From", "?")
+        subj = hdrs.get("Subject", "(no subject)")
+        lines.append(f"• {frm} — {subj}")
+    return "\n".join(lines)
+
+
 def gmail_action(
     parameters: dict,
     response=None,
@@ -136,6 +189,27 @@ def gmail_action(
     err = _creds_error(cfg)
     if err:
         return err
+
+    # Prefer Gmail API when OAuth is available
+    try:
+        import google_oauth
+        if google_oauth.has_token():
+            try:
+                if action in ("send", "compose"):
+                    to      = str(params.get("to", "")).strip()
+                    subject = str(params.get("subject", "")).strip() or "From Kaizumi"
+                    body    = str(params.get("body", "")).strip()
+                    if not to:
+                        return "I need the recipient's email address, sir."
+                    if not body:
+                        return "I need the message body, sir."
+                    return _send_gmail_api(google_oauth.get_credentials(), to, subject, body)
+                if action in ("read", "check", "inbox", "latest"):
+                    return _read_gmail_api(google_oauth.get_credentials(), int(params.get("limit", 5)))
+            except Exception as e:
+                return f"Gmail API error: {e}"
+    except Exception:
+        pass
 
     try:
         if action in ("send", "compose"):

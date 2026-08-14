@@ -29,3 +29,5 @@ websockets
 python-pptx
 openpyxl
 pypdf
+google-auth-oauthlib
+google-api-python-client
