@@ -2503,7 +2503,7 @@ class JarvisLive:
         if not token:
             return
         chat = self.telegram_chat
-        if not tg.ping_bot(token):
+        if not await asyncio.to_thread(tg.ping_bot, token):
             print("[Telegram] ⚠️ Bot token rejected — check config/api_keys.json.")
             return
         offset_path = BASE_DIR / "config" / "telegram_offset.txt"
@@ -2522,12 +2522,12 @@ class JarvisLive:
 
         print("[Telegram] 🤖 Bot online — polling for your messages.")
         self.ui.write_log("SYS: Telegram bot online.")
-        if not tg.set_bot_commands(token):
+        if not await asyncio.to_thread(tg.set_bot_commands, token):
             print("[Telegram] ⚠️ Could not set bot command menu.")
         offset = _load_offset()
         while True:
             try:
-                for upd in tg.get_updates(token, offset, timeout=25):
+                for upd in await asyncio.to_thread(tg.get_updates, token, offset, 25):
                     offset = upd.get("update_id", 0) + 1
                     _save_offset(offset)
                     cbq = upd.get("callback_query")
@@ -2564,7 +2564,9 @@ class JarvisLive:
     async def _send_realtime(self):
         while True:
             msg = await self.out_queue.get()
-            await self.session.send_realtime_input(media=msg)
+            await self.session.send_realtime_input(
+                audio=types.Blob(data=msg["data"], mime_type=msg["mime_type"])
+            )
 
     async def _listen_audio(self):
         print("[KAIZUMI] 🎤 Mic started")
