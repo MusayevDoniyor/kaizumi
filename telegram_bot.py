@@ -205,6 +205,23 @@ def ping_bot(token: str) -> bool:
     return bool(data and data.get("result"))
 
 
+BOT_COMMANDS = [
+    {"command": "start",       "description": "Boshlash / yordam"},
+    {"command": "help",        "description": "Yordam va misollar"},
+    {"command": "status",      "description": "Kaizumi statusi (mute/holat)"},
+    {"command": "mute",        "description": "Mikrofonni o'chirish"},
+    {"command": "unmute",      "description": "Mikrofonni yoqish"},
+    {"command": "screenshot",  "description": "Ekran rasmini yuborish"},
+]
+
+
+def set_bot_commands(token: str) -> bool:
+    """Register the /-command list in Telegram's bot menu (setMyCommands)."""
+    data = api_call(token, "setMyCommands",
+                    {"commands": BOT_COMMANDS})
+    return bool(data and data.get("ok"))
+
+
 def mark_read(token: str, offset: int):
     """Confirm an update offset so Telegram stops re-delivering it."""
     api_call(token, "getUpdates", params={"offset": offset, "timeout": 1})

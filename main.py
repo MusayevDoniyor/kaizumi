@@ -2302,6 +2302,8 @@ class JarvisLive:
 
         print("[Telegram] 🤖 Bot online — polling for your messages.")
         self.ui.write_log("SYS: Telegram bot online.")
+        if not tg.set_bot_commands(token):
+            print("[Telegram] ⚠️ Could not set bot command menu.")
         offset = _load_offset()
         while True:
             try:
