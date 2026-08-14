@@ -50,8 +50,8 @@ Return ONLY valid JSON:
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from api_keys import next_key
+    return next_key()
 
 
 def analyze_error(

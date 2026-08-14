@@ -300,9 +300,69 @@
           if (connected) teardown("Disconnected.");
         };
         ws.onerror = (e) => setStatus("Connection error.", false);
+
+        function playBeep() {
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.value = 880;
+            gain.gain.value = 0.6;
+            osc.connect(gain).connect(ctx.destination);
+            osc.start();
+            let t = ctx.currentTime;
+            for (let i = 0; i < 4; i++) {
+              gain.gain.setValueAtTime(0, t);
+              gain.gain.linearRampToValueAtTime(0.6, t + 0.05);
+              gain.gain.linearRampToValueAtTime(0, t + 0.45);
+              t += 0.6;
+            }
+            osc.stop(t);
+            if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 800]);
+          } catch (e) {}
+        }
+
+        function handleRequest(msg) {
+          const reply = { req_id: msg.req_id };
+          if (msg.type === "ring_phone") {
+            playBeep();
+            reply.ok = true;
+          } else if (msg.type === "phone_info") {
+            const b = navigator.battery || {};
+            reply.ok = true;
+            reply.info = {
+              model: (navigator.userAgent.match(/\(([^)]+)\)/) || [])[1] || "phone",
+              android: navigator.userAgent.match(/Android\s([\d.]+)/)?.[1] || "?",
+              battery: (b.level !== undefined ? Math.round(b.level * 100) : "?"),
+              network: (navigator.connection?.effectiveType) || "?",
+              ram_free: "?",
+              storage_free: "?",
+            };
+          } else if (msg.type === "sms_send") {
+            reply.ok = false;
+            reply.error = "Sending SMS needs the native Android app — browsers can't send texts.";
+          } else if (msg.type === "read_notifications") {
+            reply.ok = false;
+            reply.error = "Reading notifications needs the native Android app with notification access.";
+          } else {
+            reply.ok = false;
+            reply.error = "Unknown request: " + msg.type;
+          }
+          if (ws && ws.readyState === 1) ws.send(JSON.stringify(reply));
+        }
+
         ws.onmessage = (ev) => {
           if (typeof ev.data === "string") {
-            setStatus(ev.data, true);
+            let msg = null;
+            try {
+              msg = JSON.parse(ev.data);
+            } catch (e) {}
+            if (msg && typeof msg === "object" && msg.req_id) {
+              handleRequest(msg);
+            } else {
+              setStatus(ev.data, true);
+            }
           } else {
             const f32 = pcm16ToFloat(ev.data);
             if (outCtx) outCtx.resume();

@@ -150,6 +150,19 @@ def phone_info_via_phone(jarvis) -> str:
     )
 
 
+def ring_phone_via_phone(jarvis) -> str:
+    """Makes the connected phone vibrate + beep so the user can find it."""
+    if not phone_connected(jarvis):
+        return "No phone is connected right now — connect the app first."
+    reply = _request_phone(jarvis, {"type": "ring_phone"})
+    if reply is None:
+        return ("No reply from the phone (timeout) — is the Kaizumi app open, "
+                "on-screen and connected?")
+    if not reply.get("ok"):
+        return f"Could not ring the phone: {reply.get('error') or 'unknown error'}"
+    return "Ringing your phone now — check the phone, sir!"
+
+
 class _PageHandler(BaseHTTPRequestHandler):
     ws_port = DEFAULT_PORT
     html    = ""

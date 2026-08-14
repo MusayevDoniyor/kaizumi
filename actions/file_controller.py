@@ -40,15 +40,8 @@ _AI_CATEGORIES = [
 
 
 def _api_key() -> str:
-    try:
-        with open(_get_base_dir() / "config" / "api_keys.json", "r", encoding="utf-8") as f:
-            keys = json.load(f)
-        key = keys.get("gemini_api_key", "")
-        if not key:
-            raise ValueError("gemini_api_key not found")
-        return key
-    except Exception as e:
-        raise RuntimeError(f"Could not load API key: {e}")
+    from api_keys import next_key
+    return next_key()
 
 
 def _category_for_ext(ext: str) -> str:

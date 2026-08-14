@@ -60,6 +60,14 @@ from actions.vision_gesture    import vision_gesture
 from actions.daily_briefing    import daily_briefing
 from actions.notifications     import notify
 from actions.wake_word         import _service as wake_service
+from actions.gmail             import gmail_action
+from actions.pdf_reader        import read_pdf as read_pdf_action, pdf_qa
+from actions.autostart         import autostart_action
+from actions.vision_click      import vision_click_action
+from actions.document_qa       import read_document as read_document_action, document_qa as document_qa_action
+from actions.monitor           import monitor_action, check_rules as check_monitor_rules, check_email_watch, email_watch_action
+from actions.translate         import translate_action
+from actions.media_control     import media_control_action
 
 
 def get_base_dir():
@@ -72,6 +80,20 @@ BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
 LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+TG_MODEL            = "gemini-2.5-flash"
+
+TG_HELP_TEXT = (
+    "🤖 *Kaizumi — Telegram remote control*\n"
+    "Yozing, men bajaraman. Misollar:\n"
+    "• `notepadni och`\n"
+    "• `Toshkent ob-havosi`\n"
+    "• `CPU qancha`\n"
+    "• `menga eslatma qo'y 10 daqiqadan keyin`\n"
+    "• `clipboard'ni ko'rsat`\n"
+    "• `yangi email bormi`\n\n"
+    "🎤 Ovozli xabar yuborsangiz ham tushunaman.\n"
+    "Buyruqlar: /help"
+)
 CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
@@ -140,8 +162,8 @@ def _get_style_from_memory(memory: dict | None) -> tuple[str, str]:
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from api_keys import next_key
+    return next_key()
 
 
 def _load_system_prompt() -> str:
@@ -866,6 +888,231 @@ TOOL_DECLARATIONS = [
             "required": []
         }
     },
+    {
+        "name": "gmail",
+        "description": (
+            "Sends and reads Gmail. 'send' composes an email to any address; "
+            "'read' lists the most recent inbox emails. Requires a Gmail app "
+            "password saved in config/api_keys.json (gmail_user + "
+            "gmail_app_password). Use for 'send an email to X', 'check my email', "
+            "'what is in my inbox'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":  {"type": "STRING", "description": "send | read (default: send)"},
+                "to":      {"type": "STRING", "description": "Recipient email address (send only)"},
+                "subject": {"type": "STRING", "description": "Email subject (send only)"},
+                "body":    {"type": "STRING", "description": "Email body text (send only)"},
+                "limit":   {"type": "INTEGER", "description": "How many recent emails to read (read only, default 5)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "read_pdf",
+        "description": (
+            "Reads a PDF file and shows a preview of its content (page count and "
+            "opening text). Give the file name or path, e.g. 'manual.pdf' or "
+            "'C:\\Users\\you\\Documents\\manual.pdf'. Use for 'open/read the PDF', "
+            "'what is in this document'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "path": {"type": "STRING", "description": "PDF file name or full path"}
+            },
+            "required": ["path"]
+        }
+    },
+    {
+        "name": "pdf_qa",
+        "description": (
+            "Answers a question about the contents of a PDF file. Finds the "
+            "relevant parts of the document and answers from them. Use for "
+            "'what does the PDF say about X', 'summarize this document', "
+            "'find Y in the manual'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "path":     {"type": "STRING", "description": "PDF file name or full path"},
+                "question": {"type": "STRING", "description": "Question about the document's content"}
+            },
+            "required": ["path", "question"]
+        }
+    },
+    {
+        "name": "autostart",
+        "description": (
+            "Controls whether Kaizumi starts automatically at Windows login. "
+            "Actions: status | enable | disable. 'enable' registers Kaizumi in "
+            "the startup list (optionally with the phone bridge via 'remote'). "
+            "Use for 'start at login', 'run on startup', 'open automatically'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "status | enable | disable (default: status)"},
+                "remote": {"type": "BOOLEAN", "description": "For 'enable': also start the phone bridge (default true)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "vision_click",
+        "description": (
+            "Clicks anywhere on the screen by looking at it. Describe the element "
+            "to click ('the Send button', 'the Chrome icon', 'the search box') and "
+            "Kaizumi finds it on the screenshot and clicks it. Use for 'click the "
+            "Send button', 'press the green button', 'click on the search field'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "target":      {"type": "STRING", "description": "What to click, in plain words"},
+                "click":       {"type": "STRING", "description": "Optional: 'double' for a double-click"},
+                "only_coords": {"type": "BOOLEAN", "description": "Optional: return coordinates without clicking"}
+            },
+            "required": ["target"]
+        }
+    },
+    {
+        "name": "phone_ring",
+        "description": (
+            "Makes the connected phone vibrate and beep so it can be found. "
+            "Use when the user asks 'find my phone', 'ring my phone', 'wheres my "
+            "phone'. Requires the Kaizumi app to be open and connected on the phone."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "monitor_alerts",
+        "description": (
+            "Sets PC monitoring alerts: warn when CPU, RAM, disk or battery "
+            "crosses a threshold, then Kaizumi speaks + notifies the phone. "
+            "Actions: list | add | remove | check | status. "
+            "Use for 'alert me when cpu goes above 90', 'warn me when my battery "
+            "is below 20 percent', 'tell me if ram is high', 'monitor the pc'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action":    {"type": "STRING", "description": "list | add | remove | check | status (default: list)"},
+                "kind":      {"type": "STRING", "description": "Metric to watch: cpu | ram | disk | battery"},
+                "threshold": {"type": "NUMBER", "description": "Percent threshold to trigger"},
+                "above":     {"type": "BOOLEAN", "description": "True=alert above threshold (cpu/ram/disk), false=alert below (battery). Default true."},
+                "message":   {"type": "STRING", "description": "Optional custom alert message"},
+                "id":        {"type": "INTEGER", "description": "Alert id to remove"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "read_document",
+        "description": (
+            "Reads any local document or web page and shows a preview: PDF, TXT, "
+            "Markdown, HTML, Word (.docx), CSV, Excel, PowerPoint, or a website "
+            "URL. Use for 'read this document', 'what is in the file', "
+            "'show me that page'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "source": {"type": "STRING", "description": "File name, full path, or URL"}
+            },
+            "required": ["source"]
+        }
+    },
+    {
+        "name": "document_qa",
+        "description": (
+            "Answers questions about the content of ANY document or web page: "
+            "PDF, Word, TXT, Markdown, HTML, Excel, PowerPoint or a website URL. "
+            "Finds the relevant parts and answers from them. Use for "
+            "'summarize this document', 'what does the file say about X', "
+            "'what is on this website about Y'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "source":   {"type": "STRING", "description": "File name, full path, or URL"},
+                "question": {"type": "STRING", "description": "Question about the content"}
+            },
+            "required": ["source", "question"]
+        }
+    },
+    {
+        "name": "email_watch",
+        "description": (
+            "Turns on or off an automatic watcher that alerts the user as soon "
+            "as new mail arrives in Gmail (speaks + notifies + phone push). "
+            "Actions: enable | disable | status. Requires Gmail already "
+            "configured. Use for 'alert me when I get new email', 'tell me when "
+            "a new mail arrives', 'stop email alerts'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "enable | disable | status (default: status)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "translate",
+        "description": (
+            "Translates any text into another language. Use for 'translate this "
+            "into Russian', 'how do I say X in English', 'translate Y to Uzbek'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "text":  {"type": "STRING", "description": "Text to translate"},
+                "to":    {"type": "STRING", "description": "Target language, e.g. English, Russian, Uzbek (default English)"},
+                "from":  {"type": "STRING", "description": "Optional source language (auto-detected if omitted)"}
+            },
+            "required": ["text"]
+        }
+    },
+    {
+        "name": "media_control",
+        "description": (
+            "Controls whatever music or video is playing (Spotify, YouTube, "
+            "VLC, media players): play/pause, next, previous, volume up/down, "
+            "mute. Works with global media keys. Use for 'play music', 'pause', "
+            "'next song', 'volume down', 'switch the track'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "play | pause | toggle | next | prev | volume_up | volume_down | mute (default: toggle)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "api_add_key",
+        "description": (
+            "Adds a NEW Gemini API key to the rotation pool. Use when the "
+            "current key(s) hit their daily quota (the AI says the limit is "
+            "exhausted). The user pastes a new key starting with 'AIza...'. "
+            "Old keys are kept and reused automatically after their quota "
+            "resets. Use for 'yangi api key qoshish', 'add api key AIza...', "
+            "'key qo'sh'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "key": {"type": "STRING", "description": "The new Gemini API key, starts with AIza"}
+            },
+            "required": ["key"]
+        }
+    },
 ]
 
 
@@ -894,6 +1141,15 @@ class JarvisLive:
         self.remote_port    = remote_port
         self._schedules     = []
         self._sched_lock    = threading.Lock()
+
+        self.telegram_token = None
+        self.telegram_chat  = None
+        try:
+            _tg_cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+            self.telegram_token = (_tg_cfg.get("telegram_bot_token") or "").strip() or None
+            self.telegram_chat  = _tg_cfg.get("telegram_chat_id")
+        except Exception:
+            pass
 
         try:
             wake_service.configure(on_detect=self._on_wake_detect)
@@ -1172,6 +1428,16 @@ class JarvisLive:
             update_memory({"preferences": {"assistant_mood": {"value": mood}}})
             return f"Mood set to: {mood}."
 
+        def _api_add_key(args):
+            import api_keys
+            key = str(args.get("key", "")).strip()
+            try:
+                n = api_keys.add_key(key)
+            except ValueError as e:
+                return f"❌ {e}"
+            return (f"✅ Yangi API kalit qo'shildi (jami: {n}). "
+                    "Limit tugagan kalitlar avtomatik aylanadi.")
+
         return {
             "open_app":          (lambda a: open_app(parameters=a, response=None, player=ui), 60),
             "weather_report":    (lambda a: weather_action(parameters=a, player=ui), 60),
@@ -1202,6 +1468,18 @@ class JarvisLive:
             "save_memory":       (_save_memory, 10),
             "set_mode":          (_set_mode, 10),
             "set_mood":          (_set_mood, 10),
+            "gmail":             (lambda a: gmail_action(parameters=a, response=None, player=ui), 60),
+            "read_pdf":          (lambda a: read_pdf_action(parameters=a, response=None, player=ui), 60),
+            "pdf_qa":            (lambda a: pdf_qa(parameters=a, response=None, player=ui), 90),
+            "autostart":         (lambda a: autostart_action(parameters=a, response=None, player=ui), 20),
+            "vision_click":      (lambda a: vision_click_action(parameters=a, response=None, player=ui), 90),
+            "monitor_alerts":    (lambda a: monitor_action(parameters=a, response=None, player=ui), 15),
+            "email_watch":       (lambda a: email_watch_action(parameters=a, response=None, player=ui), 15),
+            "translate":         (lambda a: translate_action(parameters=a, response=None, player=ui), 45),
+            "media_control":     (lambda a: media_control_action(parameters=a, response=None, player=ui), 20),
+            "read_document":     (lambda a: read_document_action(parameters=a, response=None, player=ui), 45),
+            "document_qa":       (lambda a: document_qa_action(parameters=a, response=None, player=ui), 90),
+            "api_add_key":       (_api_add_key, 15),
         }
 
     async def _dispatch_tool(self, name: str, args: dict) -> ToolResult:
@@ -1484,9 +1762,10 @@ class JarvisLive:
                 )
                 result = r
 
-            elif name in ("send_sms", "read_notifications", "phone_info"):
+            elif name in ("send_sms", "read_notifications", "phone_info", "phone_ring"):
                 from remote_bridge import (
-                    send_sms_via_phone, read_notifications_via_phone, phone_info_via_phone,
+                    send_sms_via_phone, read_notifications_via_phone,
+                    phone_info_via_phone, ring_phone_via_phone,
                 )
                 if name == "send_sms":
                     r = await loop.run_in_executor(
@@ -1498,8 +1777,10 @@ class JarvisLive:
                         None,
                         lambda: read_notifications_via_phone(self, args.get("limit", 10)),
                     )
-                else:
+                elif name == "phone_info":
                     r = await loop.run_in_executor(None, lambda: phone_info_via_phone(self))
+                else:
+                    r = await loop.run_in_executor(None, lambda: ring_phone_via_phone(self))
                 result = r
 
             else:
@@ -1608,6 +1889,176 @@ class JarvisLive:
             except Exception as e:
                 print(f"[Scheduler] ⚠️ {e}")
             await asyncio.sleep(5)
+
+    async def _monitor_loop(self, interval: float = 30.0):
+        """Background watchdog: speak + push any newly-triggered alert."""
+        while True:
+            try:
+                alerts = await asyncio.to_thread(check_monitor_rules)
+                for text in alerts:
+                    print(f"[Monitor] 🔔 {text}")
+                    self.ui.write_log(text)
+                    self.broadcast_remote({"type": "system", "text": text})
+                    if self.session:
+                        self.speak(text)
+            except Exception as e:
+                print(f"[Monitor] ⚠️ {e}")
+            try:
+                for text in await asyncio.to_thread(check_email_watch):
+                    print(f"[Email] 🔔 {text}")
+                    self.ui.write_log(text)
+                    self.broadcast_remote({"type": "system", "text": text})
+                    from actions.notifications import notify
+                    notify(parameters={"title": "Kaizumi", "message": text}, player=self.ui)
+                    if self.session:
+                        self.speak(text)
+            except Exception as e:
+                print(f"[Email] ⚠️ {e}")
+            await asyncio.sleep(interval)
+
+    # ── Telegram remote-control bot ──────────────────────────────────────────
+
+    def _telegram_context(self) -> str:
+        from datetime import datetime
+        memory     = load_memory()
+        mem_str    = format_memory_for_prompt(memory)
+        mode, mood = _get_style_from_memory(memory)
+        now        = datetime.now()
+        parts = [
+            "[CURRENT DATE & TIME]",
+            f"Right now it is: {now.strftime('%A, %B %d, %Y — %I:%M %p')}",
+            "",
+            "[ASSISTANT MODE & MOOD]",
+            f"Mode: {mode}  Mood: {mood}",
+            "",
+        ]
+        recent = self._rolling_digest(limit=1000)
+        if recent:
+            parts += ["[RECENT CONVERSATION]", recent, ""]
+        if mem_str:
+            parts.append(mem_str)
+        parts.append(_load_system_prompt())
+        return "\n".join(parts)
+
+    async def _telegram_run_command(self, text: str) -> str:
+        """Mini agent loop: Gemini interprets → tools run → text reply."""
+        import api_keys
+        from google.genai import types as gtypes
+        config = gtypes.GenerateContentConfig(
+            system_instruction=self._telegram_context(),
+            tools=[{"function_declarations": TOOL_DECLARATIONS}],
+            temperature=0.4,
+        )
+        contents = [gtypes.Content(parts=[gtypes.Part(text=str(text))])]
+        final = ""
+        for _ in range(4):
+            try:
+                resp = await api_keys.aio_generate(
+                    model=TG_MODEL, contents=contents,
+                    config=config, api_version="v1beta")
+            except Exception as e:
+                msg = str(e)
+                if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                    return ("⚠️ Barcha API kalitlari limitga yetgan "
+                            "(20 so'rov/kun). Yangi kalit qo'shing yoki "
+                            "bir necha soatdan keyin urinib ko'ring.")
+                return f"Model error: {e}"
+            if resp.text:
+                final = resp.text.strip()
+            calls = getattr(resp, "function_calls", None)
+            if not calls:
+                break
+            model_parts = (list(resp.candidates[0].content.parts)
+                           if resp.candidates else [])
+            tool_parts = []
+            for fc in calls:
+                name = fc.name
+                args = dict(fc.args or {})
+                tr = await self._dispatch_tool(name, args)
+                result = str(tr.content) if tr.ok else f"error: {tr.content}"
+                print(f"[Telegram] 🔧 {name} {args} → {str(result)[:80]}")
+                tool_parts.append(gtypes.Part(
+                    function_response=gtypes.FunctionResponse(
+                        name=name, response={"result": result})))
+            contents += [
+                gtypes.Content(role="model", parts=model_parts),
+                gtypes.Content(role="tool", parts=tool_parts),
+            ]
+        return final or "Done, sir."
+
+    async def _telegram_handle_text(self, token, chat, text: str):
+        import telegram_bot as tg
+        low = text.lower().strip()
+        if low in ("/start", "/help", "start", "help"):
+            tg.send_message(token, chat, TG_HELP_TEXT)
+            return
+        if low in ("/stop",):
+            return
+        tg.send_message(token, chat, "⏳ ...")
+        answer = await self._telegram_run_command(text)
+        tg.send_message(token, chat, answer)
+
+    async def _telegram_handle_voice(self, token, chat, voice, caption: str = ""):
+        import telegram_bot as tg
+        file_id = (voice or {}).get("file_id")
+        if not file_id:
+            tg.send_message(token, chat, "That audio wasn't readable, sir.")
+            return
+        audio = await asyncio.to_thread(tg.download_file, token, file_id)
+        if not audio:
+            tg.send_message(token, chat, "Couldn't download the voice message, sir.")
+            return
+        tg.send_message(token, chat, "🎧 Listening...")
+        try:
+            api_key = _get_api_key()
+            transcript = await asyncio.to_thread(
+                tg.transcribe_voice, api_key, audio)
+        except Exception as e:
+            tg.send_message(token, chat, f"Voice transcription failed: {e}")
+            return
+        if not transcript:
+            tg.send_message(token, chat, "I couldn't hear anything, sir.")
+            return
+        if caption:
+            transcript = caption
+        tg.send_message(token, chat, f"📝 You said: {transcript[:300]}")
+        answer = await self._telegram_run_command(transcript)
+        tg.send_message(token, chat, answer)
+
+    async def _telegram_loop(self):
+        import telegram_bot as tg
+        token = self.telegram_token
+        if not token:
+            return
+        chat = self.telegram_chat
+        if not tg.ping_bot(token):
+            print("[Telegram] ⚠️ Bot token rejected — check config/api_keys.json.")
+            return
+        print("[Telegram] 🤖 Bot online — polling for your messages.")
+        self.ui.write_log("SYS: Telegram bot online.")
+        offset = 0
+        while True:
+            try:
+                for upd in tg.get_updates(token, offset, timeout=25):
+                    offset = upd.get("update_id", 0) + 1
+                    msg = upd.get("message") or {}
+                    cid = msg.get("chat", {}).get("id")
+                    if str(cid) != str(chat):
+                        continue
+                    text  = (msg.get("text") or "").strip()
+                    voice = msg.get("voice") or msg.get("audio")
+                    cap   = (msg.get("caption") or "").strip()
+                    try:
+                        if voice:
+                            await self._telegram_handle_voice(token, chat, voice, cap)
+                        elif text:
+                            await self._telegram_handle_text(token, chat, text)
+                    except Exception as e:
+                        import traceback; traceback.print_exc()
+                        tg.send_message(token, chat, f"⚠️ {e}")
+            except Exception as e:
+                print(f"[Telegram] ⚠️ {e}")
+            await asyncio.sleep(0.5)
 
     async def _send_realtime(self):
         while True:
@@ -1787,6 +2238,10 @@ class JarvisLive:
                 print(f"[Bridge] ⚠️ Could not start bridge: {e}")
                 traceback.print_exc()
 
+        tg_task = None
+        if self.telegram_token:
+            tg_task = asyncio.create_task(self._telegram_loop())
+
         try:
             while True:
                 try:
@@ -1815,6 +2270,7 @@ class JarvisLive:
                         tg.create_task(self._play_audio())
                         tg.create_task(self._watch_speaking())
                         tg.create_task(self._scheduler_loop())
+                        tg.create_task(self._monitor_loop())
 
                 except Exception as e:
                     log(f"Session error: {e}", level="ERROR")
@@ -1831,6 +2287,11 @@ class JarvisLive:
                 print("[KAIZUMI] 🔄 Reconnecting in 3s...")
                 await asyncio.sleep(3)
         finally:
+            if tg_task:
+                try:
+                    tg_task.cancel()
+                except Exception:
+                    pass
             if bridge:
                 from remote_bridge import close_bridge
                 close_bridge(*bridge)

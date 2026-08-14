@@ -204,8 +204,8 @@ OUTPUT — return ONLY valid JSON, no markdown, no explanation, no code blocks:
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    from api_keys import next_key
+    return next_key()
 
 
 def create_plan(goal: str, context: str = "") -> dict:
