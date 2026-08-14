@@ -81,7 +81,8 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
-LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+LIVE_MODEL          = "models/gemini-3.1-flash-live-preview"
+THINKING_LEVEL      = "low"  # Gemini 3.1 thinking depth: minimal | low | medium | high
 TG_MODEL            = "gemini-2.5-flash"
 
 TG_HELP_TEXT = (
@@ -136,22 +137,7 @@ TG_MODE_KEYBOARD = {
     ]
 }
 
-TG_VOICE_KEYBOARD = {
-    "inline_keyboard": [
-        [
-            {"text": "🎙 Aoede (ayol)",  "callback_data": "/voice Aoede"},
-            {"text": "🎙 Zephyr (ayol)", "callback_data": "/voice Zephyr"},
-        ],
-        [
-            {"text": "🎙 Kore (ayol)",   "callback_data": "/voice Kore"},
-            {"text": "🎙 Charon (erkak)","callback_data": "/voice Charon"},
-        ],
-        [
-            {"text": "🎙 Fenrir (erkak)","callback_data": "/voice Fenrir"},
-            {"text": "🎙 Puck (erkak)",  "callback_data": "/voice Puck"},
-        ],
-    ]
-}
+TG_VOICE_KEYBOARD = None  # built after VOICE_NAMES is defined below
 
 
 def _take_screenshot_bytes() -> bytes | None:
@@ -223,14 +209,48 @@ def _normalize_mode(text) -> str:
 
 
 VOICES = {
-    "Aoede":  "Gemini ovozlari — yumshoq ayol",
-    "Charon": "Gemini ovozlari — chuqur erkak",
-    "Fenrir": "Gemini ovozlari — qattiq erkak",
-    "Kore":   "Gemini ovozlari — jonli ayol",
-    "Puck":   "Gemini ovozlari — bahaybat erkak",
-    "Zephyr": "Gemini ovozlari — engil ayol",
+    "Achernar":      "mayin (Soft)",
+    "Achird":        "do'stona (Friendly)",
+    "Algenib":       "bo'g'iq (Gravelly)",
+    "Algieba":       "silliq (Smooth)",
+    "Alnilam":       "qat'iy (Firm)",
+    "Aoede":         "engil ayol (Breezy)",
+    "Autonoe":       "yorqin (Bright)",
+    "Callirrhoe":    "erkin (Easy-going)",
+    "Charon":        "chuqur erkak (Informative)",
+    "Despina":       "silliq (Smooth)",
+    "Enceladus":     "nafasli (Breathy)",
+    "Erinome":       "aniq (Clear)",
+    "Fenrir":        "qattiq erkak (Excitable)",
+    "Gacrux":        "etuk (Mature)",
+    "Iapetus":       "aniq (Clear)",
+    "Kore":          "jonli ayol (Firm)",
+    "Laomedeia":     "quvnoq (Upbeat)",
+    "Leda":          "yoshlik (Youthful)",
+    "Orus":          "qat'iy erkak (Firm)",
+    "Puck":          "quvnoq erkak (Upbeat)",
+    "Pulcherrima":   "dadil (Forward)",
+    "Rasalgethi":    "ma'lumotli (Informative)",
+    "Sadachbia":     "jonli (Lively)",
+    "Sadaltager":    "bilimdon (Knowledgeable)",
+    "Schedar":       "tinch (Even)",
+    "Sulafat":       "iliq (Warm)",
+    "Umbriel":       "erkin (Easy-going)",
+    "Vindemiatrix":  "muloyim (Gentle)",
+    "Zephyr":        "yorqin ayol (Bright)",
+    "Zubenelgenubi": "oddiy (Casual)",
 }
-VOICE_NAMES = ["Aoede", "Charon", "Fenrir", "Kore", "Puck", "Zephyr"]
+VOICE_NAMES = list(VOICES.keys())
+
+TG_VOICE_KEYBOARD = {
+    "inline_keyboard": [
+        [
+            {"text": f"🎙 {name}", "callback_data": f"/voice {name}"}
+            for name in VOICE_NAMES[i:i + 2]
+        ]
+        for i in range(0, len(VOICE_NAMES), 2)
+    ]
+}
 
 
 def _normalize_voice(text) -> str:
@@ -708,16 +728,15 @@ TOOL_DECLARATIONS = [
             "Use when the user asks to change/switch the voice, or says "
             "'ovozni o'zgartir', 'boshqa ovoz', 'speak with a male voice', "
             "'sounds too robotic'. This persists across sessions and takes "
-            "effect shortly. Voices: "
-            "Aoede (soft female) | Charon (deep male) | Fenrir (deep male) | "
-            "Kore (lively female) | Puck (resonant male) | Zephyr (light female)."
+            "effect shortly. Available voices: "
+            + ", ".join(VOICE_NAMES) + "."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "voice": {
                     "type": "STRING",
-                    "description": "One of: Aoede | Charon | Fenrir | Kore | Puck | Zephyr"
+                    "description": "One of: " + " | ".join(VOICE_NAMES)
                 }
             },
             "required": ["voice"]
@@ -1658,8 +1677,7 @@ class JarvisLive:
         def _set_voice(args):
             voice = _normalize_voice(args.get("voice", ""))
             if not voice:
-                return ("Invalid voice. Use: Aoede, Charon, Fenrir, Kore, "
-                        "Puck, Zephyr.")
+                return ("Invalid voice. Use: " + ", ".join(VOICE_NAMES) + ".")
             update_memory({"preferences": {"assistant_voice": {"value": voice}}})
             self._schedule_session_reload()
             return f"Voice set to: {voice}."
@@ -1821,6 +1839,12 @@ class JarvisLive:
             system_instruction="\n".join(parts),
             tools=[{"function_declarations": TOOL_DECLARATIONS}],
             session_resumption=types.SessionResumptionConfig(),
+            context_window_compression=types.ContextWindowCompressionConfig(
+                sliding_window=types.SlidingWindow()
+            ),
+            thinking_config=types.ThinkingConfig(
+                thinking_level=THINKING_LEVEL
+            ),
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -1876,8 +1900,8 @@ class JarvisLive:
             if not voice:
                 return types.FunctionResponse(
                     id=fc.id, name=name,
-                    response={"result": ("Invalid voice. Use: Aoede, Charon, "
-                                         "Fenrir, Kore, Puck, Zephyr.")}
+                    response={"result": ("Invalid voice. Use: "
+                                          + ", ".join(VOICE_NAMES) + ".")}
                 )
             update_memory({"preferences": {"assistant_voice": {"value": voice}}})
             self._schedule_session_reload()
