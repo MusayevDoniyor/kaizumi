@@ -85,19 +85,46 @@ LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 TG_MODEL            = "gemini-2.5-flash"
 
 TG_HELP_TEXT = (
-    "🤖 *Kaizumi — Telegram remote control*\n"
+    "🤖 <b>Kaizumi — Telegram remote control</b>\n"
     "Yozing, men bajaraman. Misollar:\n"
-    "• `notepadni och`\n"
-    "• `Toshkent ob-havosi`\n"
-    "• `CPU qancha`\n"
-    "• `menga eslatma qo'y 10 daqiqadan keyin`\n"
-    "• `clipboard'ni ko'rsat`\n"
-    "• `yangi email bormi` / `email yubor ...`\n"
-    "• `kalendarimni ko'rsat` / `ertaga 15:00 da uchrashuv qo'y`\n"
-    "• `google_auth` (Google ulash) / `google tekshir`\n\n"
+    "• <code>notepadni och</code>\n"
+    "• <code>Toshkent ob-havosi</code>\n"
+    "• <code>CPU qancha</code>\n"
+    "• <code>menga eslatma qo'y 10 daqiqadan keyin</code>\n"
+    "• <code>clipboard'ni ko'rsat</code>\n"
+    "• <code>yangi email bormi</code> / <code>email yubor ...</code>\n"
+    "• <code>kalendarimni ko'rsat</code> / <code>ertaga 15:00 da uchrashuv qo'y</code>\n"
+    "• <code>google_auth</code> (Google ulash) / <code>google tekshir</code>\n\n"
     "🎤 Ovozli xabar yuborsangiz ham tushunaman.\n"
-    "Buyruqlar: /help"
+    "⚡ Tezkor tugmalar va <code>/status</code>, <code>/mute</code>, "
+    "<code>/unmute</code>, <code>/screenshot</code>, <code>/help</code>."
 )
+
+TG_QUICK_KEYBOARD = {
+    "inline_keyboard": [
+        [
+            {"text": "🔍 Status", "callback_data": "/status"},
+            {"text": "🔇 Mute",  "callback_data": "/mute"},
+            {"text": "🔊 Unmute", "callback_data": "/unmute"},
+        ],
+        [
+            {"text": "📸 Screenshot", "callback_data": "/screenshot"},
+            {"text": "❓ Help", "callback_data": "/help"},
+        ],
+    ]
+}
+
+
+def _take_screenshot_bytes() -> bytes | None:
+    """Capture the whole screen as PNG bytes (for /screenshot)."""
+    try:
+        import io
+        import pyautogui
+        buf = io.BytesIO()
+        pyautogui.screenshot().save(buf, "PNG")
+        return buf.getvalue()
+    except Exception:
+        return None
 CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
@@ -2046,10 +2073,39 @@ class JarvisLive:
         recent = self._rolling_digest(limit=1000)
         if recent:
             parts += ["[RECENT CONVERSATION]", recent, ""]
+        tg_hist = self._tg_history_context(limit=900)
+        if tg_hist:
+            parts += [
+                "[TELEGRAM CHAT HISTORY — previous exchanges with this user, "
+                "use it to stay consistent]",
+                tg_hist, "",
+            ]
         if mem_str:
             parts.append(mem_str)
         parts.append(_load_system_prompt())
         return "\n".join(parts)
+
+    def _tg_history_context(self, limit: int = 900) -> str:
+        """Flatten the last Telegram exchanges into a prompt-able string."""
+        hist = getattr(self, "_tg_history", None) or []
+        if not hist:
+            return ""
+        lines, used = [], 0
+        for role, txt in list(hist)[-8:]:
+            line = f"{'User' if role == 'user' else 'Kaizumi'}: {txt}"
+            if used + len(line) > limit:
+                break
+            lines.append(line)
+            used += len(line)
+        return "\n".join(lines)
+
+    def _remember_tg_turn(self, role: str, text: str):
+        if not getattr(self, "_tg_history", None):
+            from collections import deque
+            self._tg_history = deque(maxlen=20)
+        text = (text or "").strip()[:500]
+        if text:
+            self._tg_history.append((role, text))
 
     async def _telegram_run_command(self, text: str) -> str:
         """Mini agent loop: Gemini interprets → tools run → text reply."""
@@ -2062,6 +2118,7 @@ class JarvisLive:
         )
         contents = [gtypes.Content(parts=[gtypes.Part(text=str(text))])]
         final = ""
+        tool_results = []
         for _ in range(4):
             try:
                 resp = await api_keys.aio_generate(
@@ -2086,7 +2143,11 @@ class JarvisLive:
                 name = fc.name
                 args = dict(fc.args or {})
                 tr = await self._dispatch_tool(name, args)
-                result = str(tr.content) if tr.ok else f"error: {tr.content}"
+                raw = str(tr.content) if tr.ok else f"error: {tr.content}"
+                if tr.ok and not str(tr.content).strip():
+                    raw = f"(tool {name} returned no data)"
+                result = raw[:400]
+                tool_results.append(f"{name}: {result[:120]}")
                 print(f"[Telegram] 🔧 {name} {args} → {str(result)[:80]}")
                 tool_parts.append(gtypes.Part(
                     function_response=gtypes.FunctionResponse(
@@ -2095,19 +2156,88 @@ class JarvisLive:
                 gtypes.Content(role="model", parts=model_parts),
                 gtypes.Content(role="tool", parts=tool_parts),
             ]
-        return final or "Done, sir."
+        if not final:
+            if tool_results:
+                final = ("⚡ Bajarildi:\n• " +
+                         "\n• ".join(tool_results[:6]))
+            else:
+                final = "Done, sir."
+        return final
+
+    async def _telegram_quick_command(self, token, chat, text: str):
+        """Instant slash-commands and inline-keyboard callbacks.
+
+        Returns (handled, result); result is None | str | bytes(photo)."""
+        import telegram_bot as tg
+        low = text.lower().strip()
+        if low in ("/help", "/start", "help", "start"):
+            tg.send_message(token, chat, TG_HELP_TEXT,
+                            reply_markup=TG_QUICK_KEYBOARD)
+            return True, None
+        if low in ("/stop",):
+            return True, None
+        if low == "/status":
+            return True, await self._telegram_status()
+        if low == "/mute":
+            if not self.ui.muted:
+                self.ui.muted = True
+                self.ui.set_state("MUTED")
+                self.ui.write_log("SYS: Telegram: microphone muted.")
+                self.ui._safe_ui(self.ui._draw_mute_button)
+            return True, ("🔇 Mikrofon o'chirildi (MUTED). "
+                          "Endi faqat matn/Telegram orqali gapiryapman.")
+        if low == "/unmute":
+            if self.ui.muted:
+                self.ui.muted = False
+                self.ui.set_state("LISTENING")
+                self.ui.write_log("SYS: Telegram: microphone active.")
+                self.ui._safe_ui(self.ui._draw_mute_button)
+            return True, "🎤 Mikrofon yoniq (LIVE). Gaplashavering."
+        if low == "/screenshot":
+            shot = await asyncio.to_thread(_take_screenshot_bytes)
+            if shot:
+                return True, shot
+            return True, "📸 Screenshot olishning iloji bo'lmadi (pyautogui?)."
+        return False, None
+
+    async def _telegram_status(self) -> str:
+        import telegram_bot as tg
+        from datetime import datetime
+        phase   = self._current_phase().upper()
+        mode, mood = _get_style_from_memory(load_memory())
+        clients = len(getattr(self, "remote_clients", None) or ())
+        now     = datetime.now().strftime("%A, %B %d, %Y — %I:%M %p")
+        return (
+            "📊 <b>Kaizumi statusi</b>\n"
+            f"🕒 {tg.html_escape(now)}\n"
+            f"🎙 Mikrofon: <b>{'🔇 MUTED' if self.ui.muted else '🎤 LIVE'}</b>\n"
+            f"🔄 Holat: <b>{tg.html_escape(phase)}</b>\n"
+            f"📱 Ulangan telefonlar: {clients}\n"
+            f"🧭 Rejim: <b>{tg.html_escape(mode)}</b>  |  "
+            f"Kayfiyat: <b>{tg.html_escape(mood)}</b>"
+        )
 
     async def _telegram_handle_text(self, token, chat, text: str):
         import telegram_bot as tg
-        low = text.lower().strip()
-        if low in ("/start", "/help", "start", "help"):
-            tg.send_message(token, chat, TG_HELP_TEXT)
+        handled, result = await self._telegram_quick_command(token, chat, text)
+        if handled:
+            if isinstance(result, bytes):
+                tg.send_photo(token, chat, result,
+                              caption="📸 Hozirgi ekran, sir.")
+            elif result:
+                tg.send_message(token, chat, result)
             return
-        if low in ("/stop",):
-            return
-        tg.send_message(token, chat, "⏳ ...")
+        tg.send_typing(token, chat)
+        placeholder = tg.send_message(token, chat, "⏳ ...") or {}
+        msg_id = placeholder.get("message_id")
         answer = await self._telegram_run_command(text)
-        tg.send_message(token, chat, answer)
+        safe   = tg.html_escape(answer)
+        if msg_id:
+            tg.edit_message(token, chat, msg_id, safe)
+        else:
+            tg.send_message(token, chat, safe)
+        self._remember_tg_turn("user", text)
+        self._remember_tg_turn("ai", answer)
 
     async def _telegram_handle_voice(self, token, chat, voice, caption: str = ""):
         import telegram_bot as tg
@@ -2115,26 +2245,37 @@ class JarvisLive:
         if not file_id:
             tg.send_message(token, chat, "That audio wasn't readable, sir.")
             return
+        tg.send_typing(token, chat)
+        placeholder = tg.send_message(token, chat, "🎧 ...") or {}
+        msg_id = placeholder.get("message_id")
+
+        def _edit(text: str):
+            if msg_id:
+                tg.edit_message(token, chat, msg_id, text)
+            else:
+                tg.send_message(token, chat, text)
+
         audio = await asyncio.to_thread(tg.download_file, token, file_id)
         if not audio:
-            tg.send_message(token, chat, "Couldn't download the voice message, sir.")
+            _edit("Couldn't download the voice message, sir.")
             return
-        tg.send_message(token, chat, "🎧 Listening...")
         try:
             api_key = _get_api_key()
             transcript = await asyncio.to_thread(
                 tg.transcribe_voice, api_key, audio)
         except Exception as e:
-            tg.send_message(token, chat, f"Voice transcription failed: {e}")
+            _edit(f"Voice transcription failed: {tg.html_escape(str(e))}")
             return
         if not transcript:
-            tg.send_message(token, chat, "I couldn't hear anything, sir.")
+            _edit("I couldn't hear anything, sir.")
             return
         if caption:
             transcript = caption
-        tg.send_message(token, chat, f"📝 You said: {transcript[:300]}")
+        _edit(f"📝 <i>Eshitildi:</i> {tg.html_escape(transcript[:300])}")
         answer = await self._telegram_run_command(transcript)
-        tg.send_message(token, chat, answer)
+        _edit(tg.html_escape(answer))
+        self._remember_tg_turn("user", transcript)
+        self._remember_tg_turn("ai", answer)
 
     async def _telegram_loop(self):
         import telegram_bot as tg
@@ -2145,28 +2286,55 @@ class JarvisLive:
         if not tg.ping_bot(token):
             print("[Telegram] ⚠️ Bot token rejected — check config/api_keys.json.")
             return
+        offset_path = BASE_DIR / "config" / "telegram_offset.txt"
+
+        def _load_offset() -> int:
+            try:
+                return int(offset_path.read_text(encoding="utf-8").strip())
+            except Exception:
+                return 0
+
+        def _save_offset(off: int):
+            try:
+                offset_path.write_text(str(off), encoding="utf-8")
+            except Exception:
+                pass
+
         print("[Telegram] 🤖 Bot online — polling for your messages.")
         self.ui.write_log("SYS: Telegram bot online.")
-        offset = 0
+        offset = _load_offset()
         while True:
             try:
                 for upd in tg.get_updates(token, offset, timeout=25):
                     offset = upd.get("update_id", 0) + 1
+                    _save_offset(offset)
+                    cbq = upd.get("callback_query")
                     msg = upd.get("message") or {}
-                    cid = msg.get("chat", {}).get("id")
+                    if cbq:
+                        cid = (cbq.get("message") or {}).get("chat", {}).get("id")
+                    else:
+                        cid = msg.get("chat", {}).get("id")
                     if str(cid) != str(chat):
                         continue
-                    text  = (msg.get("text") or "").strip()
-                    voice = msg.get("voice") or msg.get("audio")
-                    cap   = (msg.get("caption") or "").strip()
                     try:
+                        if cbq:
+                            cb_id = cbq.get("id")
+                            data  = (cbq.get("data") or "").strip()
+                            if cb_id:
+                                tg.answer_callback(token, cb_id)
+                            if data:
+                                await self._telegram_handle_text(token, chat, data)
+                            continue
+                        text  = (msg.get("text") or "").strip()
+                        voice = msg.get("voice") or msg.get("audio")
+                        cap   = (msg.get("caption") or "").strip()
                         if voice:
                             await self._telegram_handle_voice(token, chat, voice, cap)
                         elif text:
                             await self._telegram_handle_text(token, chat, text)
                     except Exception as e:
                         import traceback; traceback.print_exc()
-                        tg.send_message(token, chat, f"⚠️ {e}")
+                        tg.send_message(token, chat, tg.html_escape(f"⚠️ {e}"))
             except Exception as e:
                 print(f"[Telegram] ⚠️ {e}")
             await asyncio.sleep(0.5)

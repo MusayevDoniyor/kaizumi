@@ -176,27 +176,50 @@ class JarvisUI:
     # ── Klavye girişi ─────────────────────────────────────────────────────────
 
     def _build_input_bar(self, lw: int, y: int):
-        """Log'un hemen altına tek satır metin giriş alanı."""
+        """Log'ning ostiga ko'p qatorli matn kiritish maydoni.
+        Enter = yuborish, Shift+Enter = yangi qator, ↑/↓ = buyruq tarixi."""
         x0    = (self.W - lw) // 2
-        BTN_W = 70
-        INP_W = lw - BTN_W - 4
+        BTN_W = 62
+        CLR_W = 62
+        INP_W = lw - BTN_W - CLR_W - 8
 
-        self._input_var = tk.StringVar()
-
-        self._input_entry = tk.Entry(
+        self._input_text = tk.Text(
             self.root,
-            textvariable=self._input_var,
             fg=C_TEXT, bg="#000d12",
             insertbackground=C_TEXT,
             borderwidth=0,
             font=("Courier", 10),
+            wrap="word",
+            height=2,
+            padx=8, pady=4,
             highlightthickness=1,
             highlightbackground=C_DIM,
             highlightcolor=C_PRI,
         )
-        self._input_entry.place(x=x0, y=y, width=INP_W, height=28)
-        self._input_entry.bind("<Return>", self._on_input_submit)
-        self._input_entry.bind("<KP_Enter>", self._on_input_submit)
+        self._input_text.place(x=x0, y=y, width=INP_W, height=46)
+        self._input_text.bind("<Return>", self._on_input_submit)
+        self._input_text.bind("<KP_Enter>", self._on_input_submit)
+        self._input_text.bind("<Shift-Return>", self._on_newline)
+        self._input_text.bind("<Shift-KP_Enter>", self._on_newline)
+        self._input_text.bind("<Up>", self._on_hist_prev)
+        self._input_text.bind("<Down>", self._on_hist_next)
+
+        self._cmd_history = []
+        self._hist_idx    = -1
+        self._draft       = ""
+
+        self._clear_btn = tk.Button(
+            self.root,
+            text="CLEAR",
+            command=self._on_clear_log,
+            fg=C_MID, bg=C_PANEL,
+            activeforeground=C_BG, activebackground=C_ACC2,
+            font=("Courier", 9, "bold"),
+            borderwidth=0, cursor="hand2",
+            highlightthickness=1,
+            highlightbackground=C_MID,
+        )
+        self._clear_btn.place(x=x0 + INP_W + 4, y=y, width=CLR_W, height=46)
 
         self._send_btn = tk.Button(
             self.root,
@@ -209,13 +232,53 @@ class JarvisUI:
             highlightthickness=1,
             highlightbackground=C_MID,
         )
-        self._send_btn.place(x=x0 + INP_W + 4, y=y, width=BTN_W, height=28)
+        self._send_btn.place(x=x0 + INP_W + CLR_W + 8, y=y,
+                             width=BTN_W, height=46)
+
+    def _get_input(self) -> str:
+        return self._input_text.get("1.0", "end-1c")
+
+    def _set_input(self, text: str):
+        self._input_text.delete("1.0", tk.END)
+        self._input_text.insert("1.0", text)
+        self._input_text.mark_set(tk.INSERT, "end-1c")
+
+    def _on_newline(self, event=None):
+        self._input_text.insert(tk.INSERT, "\n")
+        return "break"
+
+    def _on_hist_prev(self, event=None):
+        if not self._cmd_history:
+            return "break"
+        if self._hist_idx == -1:
+            self._draft   = self._get_input()
+            self._hist_idx = len(self._cmd_history)
+        if self._hist_idx > 0:
+            self._hist_idx -= 1
+            self._set_input(self._cmd_history[self._hist_idx])
+        return "break"
+
+    def _on_hist_next(self, event=None):
+        if self._hist_idx == -1:
+            return "break"
+        if self._hist_idx < len(self._cmd_history) - 1:
+            self._hist_idx += 1
+            self._set_input(self._cmd_history[self._hist_idx])
+        else:
+            self._hist_idx = -1
+            self._set_input(self._draft)
+        return "break"
 
     def _on_input_submit(self, event=None):
-        text = self._input_var.get().strip()
+        text = self._get_input().strip()
         if not text:
-            return
-        self._input_var.set("")
+            return "break"
+        self._set_input("")
+        self._cmd_history.append(text)
+        if len(self._cmd_history) > 50:
+            del self._cmd_history[0]
+        self._hist_idx = -1
+        self._draft    = ""
         self.write_log(f"You: {text}")
         if self.on_text_command:
             threading.Thread(
@@ -223,6 +286,16 @@ class JarvisUI:
                 args=(text,),
                 daemon=True
             ).start()
+        return "break"
+
+    def _on_clear_log(self):
+        self._safe_ui(self._clear_log)
+
+    def _clear_log(self):
+        self.typing_queue.clear()
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", tk.END)
+        self.log_text.configure(state="disabled")
 
     # ── Durum yönetimi ────────────────────────────────────────────────────────
 

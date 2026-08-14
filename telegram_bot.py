@@ -58,18 +58,79 @@ def get_updates(token: str, offset: int, timeout: int = 30) -> list[dict]:
     """Long-poll for new updates. Returns a list of update dicts."""
     data = api_call(token, "getUpdates",
                     params={"offset": offset, "timeout": timeout,
-                            "allowed_updates": ["message"]}, timeout=timeout + 10)
+                            "allowed_updates": ["message", "callback_query"]},
+                    timeout=timeout + 10)
     return (data or {}).get("result") or []
 
 
-def send_message(token: str, chat_id, text: str) -> bool:
+def send_message(token: str, chat_id, text: str, parse_mode: str = "HTML",
+                 reply_markup: dict | None = None) -> dict | None:
+    """Send a message (HTML by default). Returns the sent message dict (to
+    grab message_id for later edits) or None on failure."""
     if not text:
-        return False
+        return None
+    last = None
     chunks = _split_text(text)
-    for chunk in chunks:
-        api_call(token, "sendMessage",
-                 {"chat_id": chat_id, "text": chunk})
-    return True
+    for i, chunk in enumerate(chunks):
+        payload = {"chat_id": chat_id, "text": chunk}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_markup and i == len(chunks) - 1:
+            payload["reply_markup"] = reply_markup
+        last = api_call(token, "sendMessage", payload)
+    return last
+
+
+def send_typing(token: str, chat_id) -> None:
+    """Tell Telegram we're working (typing action bubble)."""
+    api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+
+
+def send_photo(token: str, chat_id, image_bytes: bytes,
+               caption: str = "", parse_mode: str = "HTML") -> None:
+    """Send a photograph (bytes) with an optional HTML caption."""
+    try:
+        resp = requests.post(
+            TELEGRAM_API.format(token=token, method="sendPhoto"),
+            data={"chat_id": chat_id, "caption": caption,
+                  "parse_mode": parse_mode},
+            files={"photo": ("shot.png", image_bytes,
+                             "image/png")},
+            timeout=40,
+        )
+        resp.json()
+    except Exception:
+        pass
+
+
+def edit_message(token: str, chat_id, message_id, text: str,
+                 parse_mode: str = "HTML",
+                 reply_markup: dict | None = None) -> bool:
+    """Edit an already-sent message in place (the '⏳…' → final answer flow)."""
+    if not text or not message_id:
+        return False
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    return bool(api_call(token, "editMessageText", payload))
+
+
+def answer_callback(token: str, callback_id: str, text: str | None = None) -> None:
+    """Acknowledge an inline-button press so Telegram stops spinners."""
+    payload = {"callback_query_id": callback_id}
+    if text:
+        payload["text"] = text
+    api_call(token, "answerCallbackQuery", payload)
+
+
+def html_escape(text: str) -> str:
+    """Escape text safely for Telegram HTML parse mode."""
+    return (str(text)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;"))
 
 
 def _split_text(text: str, limit: int = 3800) -> list[str]:
