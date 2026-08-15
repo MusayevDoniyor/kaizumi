@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="Kaizumi Banner" width="100%">
+</p>
+
 # 🤖 Kaizumi
 
 **Kaizumi** is a real-time, voice-driven AI assistant that lives on your Windows computer. It can hear you, see your screen, understand context, respond with a natural human-like voice, and take action — launching apps, managing files, running commands, sending messages, controlling smart home devices, and much more. Everything runs **locally** and is **free** (only needs a free Google AI Studio API key).
