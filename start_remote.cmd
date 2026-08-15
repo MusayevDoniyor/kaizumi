@@ -1,3 +1,8 @@
 @echo off
-cd /d C:\dev\kaizumi
-"C:\dev\kaizumi\.venv\Scripts\python.exe" -u main.py --remote
+rem start_remote.cmd — runs Kaizumi with the phone remote bridge enabled.
+cd /d "%~dp0"
+if exist ".venv\Scripts\python.exe" (
+  ".venv\Scripts\python.exe" -u main.py --remote
+) else (
+  python -u main.py --remote
+)

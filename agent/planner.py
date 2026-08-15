@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 import sys
 from pathlib import Path
@@ -65,7 +65,7 @@ daily_briefing
   city: string (optional) — weather defaults to saved memory
 
 wake_word
-  action: "start" | "stop" | "status" (required) — hands-free 'Hey Jarvis' listener
+  action: "start" | "stop" | "status" (required) — hands-free 'Hey Kaizumi' listener
 
 cmd_control
   task: string (required) — natural language description of what to do

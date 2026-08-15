@@ -1,4 +1,4 @@
-"""
+﻿"""
 memory_manager.py — Kaizumi Hafıza Sistemi
 ============================================
 Düzeltmeler:
@@ -134,7 +134,7 @@ def prune_memory(memory: dict, cap: int = 40) -> None:
         print(f"[Memory] ✂️ Pruned {cat_name}: kept {cap} most recent entries")
 
 
-def should_extract_memory(user_text: str, jarvis_text: str, api_key: str) -> bool:
+def should_extract_memory(user_text: str, assistant_text: str, api_key: str) -> bool:
     """
     Stage 1: Hızlı YES/NO kontrolü.
     Öncekinden daha geniş kriterler — favori şeyler, projeler, arkadaşlar da dahil.
@@ -145,7 +145,7 @@ def should_extract_memory(user_text: str, jarvis_text: str, api_key: str) -> boo
         client = genai.Client(api_key=api_key)
 
         # Her iki tarafı da gönder — Kaizumi'nin söyledikleri de bilgi içerebilir
-        combined = f"User: {user_text[:300]}\nKaizumi: {jarvis_text[:200]}"
+        combined = f"User: {user_text[:300]}\nKaizumi: {assistant_text[:200]}"
 
         prompt = (
             "Does this conversation contain ANY of the following?\n"
@@ -168,7 +168,7 @@ def should_extract_memory(user_text: str, jarvis_text: str, api_key: str) -> boo
         return False
 
 
-def extract_memory(user_text: str, jarvis_text: str, api_key: str) -> dict:
+def extract_memory(user_text: str, assistant_text: str, api_key: str) -> dict:
     """
     Stage 2: Detaylı çıkarım. Her iki tarafı da analiz eder.
     """
@@ -177,7 +177,7 @@ def extract_memory(user_text: str, jarvis_text: str, api_key: str) -> dict:
 
         client = genai.Client(api_key=api_key)
 
-        combined = f"User: {user_text[:500]}\nKaizumi: {jarvis_text[:300]}"
+        combined = f"User: {user_text[:500]}\nKaizumi: {assistant_text[:300]}"
 
         prompt = (
             "Extract ALL memorable personal facts from this conversation. Any language.\n"

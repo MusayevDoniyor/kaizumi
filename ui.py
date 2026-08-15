@@ -1,4 +1,4 @@
-import os, json, time, math, random, threading
+﻿import os, json, time, math, random, threading
 import tkinter as tk
 from collections import deque
 from PIL import Image, ImageTk, ImageDraw
@@ -103,7 +103,7 @@ def _save_theme_name(name: str) -> None:
         pass
 
 
-class JarvisUI:
+class KaizumiUI:
     def __init__(self, face_path, size=None):
         self.root = tk.Tk()
         self.root.title("Kaizumi")
@@ -147,7 +147,7 @@ class JarvisUI:
         self.status_text  = "INITIALISING"
         self.status_blink = True
 
-        self._jarvis_state = "INITIALISING"
+        self._state = "INITIALISING"
 
         self.typing_queue = deque()
         self.is_typing    = False
@@ -490,7 +490,7 @@ class JarvisUI:
         Called from main.py.
         state: LISTENING | SPEAKING | THINKING | MUTED | ONLINE | PROCESSING
         """
-        self._jarvis_state = state
+        self._state = state
         if state == "MUTED":
             self.status_text = "MUTED"
             self.speaking    = False
@@ -747,15 +747,15 @@ class JarvisUI:
         elif self.speaking:
             stat = "● SPEAKING"
             sc   = col["acc"]
-        elif self._jarvis_state == "THINKING":
+        elif self._state == "THINKING":
             sym  = "◈" if self.status_blink else "◇"
             stat = f"{sym} THINKING"
             sc   = col["acc2"]
-        elif self._jarvis_state == "PROCESSING":
+        elif self._state == "PROCESSING":
             sym  = "▷" if self.status_blink else "▶"
             stat = f"{sym} PROCESSING"
             sc   = col["acc2"]
-        elif self._jarvis_state == "LISTENING":
+        elif self._state == "LISTENING":
             sym  = "●" if self.status_blink else "○"
             stat = f"{sym} LISTENING"
             sc   = col["green"]
@@ -823,7 +823,7 @@ class JarvisUI:
         tl = text.lower()
         if tl.startswith("you:"):
             self.set_state("PROCESSING")
-        elif tl.startswith("jarvis:") or tl.startswith("ai:"):
+        elif tl.startswith("kaizumi:") or tl.startswith("ai:"):
             self.set_state("SPEAKING")
         if not self.is_typing:
             self._start_typing()
@@ -839,7 +839,7 @@ class JarvisUI:
         tl   = text.lower()
         if tl.startswith("you:"):
             tag = "you"
-        elif tl.startswith("jarvis:") or tl.startswith("ai:"):
+        elif tl.startswith("kaizumi:") or tl.startswith("ai:"):
             tag = "ai"
         elif tl.startswith("err:") or "error" in tl or "failed" in tl:
             tag = "err"

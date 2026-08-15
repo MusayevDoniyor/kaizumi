@@ -1,0 +1,10 @@
+{
+    "gemini_api_key": "",
+    "gemini_api_keys": [],
+    "telegram_bot_token": "",
+    "telegram_chat_id": null,
+    "gmail_user": "",
+    "gmail_app_password": "",
+    "google_client_id": "",
+    "google_client_secret": ""
+}

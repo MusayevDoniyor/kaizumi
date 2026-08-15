@@ -1,7 +1,7 @@
-# actions/wake_word.py
-# Kaizumi — Hands-free "Hey Jarvis" wake word activation
+﻿# actions/wake_word.py
+# Kaizumi — Hands-free "Hey Kaizumi" wake word activation
 #
-# Uses openwakeword (free, local, on-device) to detect the phrase "hey jarvis"
+# Uses openwakeword (free, local, on-device) to detect the phrase "hey kaizumi"
 # from the microphone in the background. When detected, Kaizumi un-mutes /
 # signals that it's listening without needing keyboard or button presses.
 
@@ -38,7 +38,7 @@ DETECT_THRESHOLD = 0.6
 
 class WakeWordService:
 
-    def __init__(self, model_file: str = "hey_jarvis_v0.1.onnx", phrase: str = "Hey Jarvis"):
+    def __init__(self, model_file: str = "hey_kaizumi_v0.1.onnx", phrase: str = "Hey Kaizumi"):
         self._running    = False
         self._thread     = None
         self._on_detect  = None      # callback invoked on wake word
@@ -156,7 +156,7 @@ class WakeWordService:
             audio = np.concatenate(self._audio_buffer)
         pred = self._model.predict(audio)
         stem = Path(self._model_file).stem
-        keys = {stem, "hey_jarvis"} if stem.startswith("hey_jarvis") else {stem}
+        keys = {stem, "hey_kaizumi"} if stem.startswith("hey_kaizumi") else {stem}
         score = max(pred.get(k, 0) for k in keys)
         if score > DETECT_THRESHOLD:
             print(f"[WakeWord] ✓ {self._phrase} detected ({score:.2f})")
@@ -183,7 +183,7 @@ def _pick_engine():
             return "kaizumi", _matcher
     except Exception:
         pass
-    return "jarvis", _service
+    return "kaizumi", _service
 
 
 def wake_word(
@@ -211,7 +211,7 @@ def wake_word(
 
     if action == "start":
         if engine is _matcher and not engine._on_detect and _service._on_detect:
-            # reuse the callback main.py already wired on the jarvis engine
+            # reuse the callback main.py already wired on the kaizumi engine
             engine.configure(on_detect=_service._on_detect)
         return engine.start()
     if action == "stop":
@@ -221,5 +221,5 @@ def wake_word(
         if engine_name == "kaizumi":
             return f"Wake word is {state} (Hey Kaizumi). Model: reference loaded."
         avail = "available" if engine.available else "unavailable (install openwakeword)"
-        return f"Wake word is {state} (Hey Jarvis). Model: {avail}."
+        return f"Wake word is {state} (Hey Kaizumi). Model: {avail}."
     return f"Unknown wake word action: {action}, sir. Use start | stop | status | record"

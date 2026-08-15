@@ -1,0 +1,13 @@
+{
+    "enabled": true,
+    "battery_low": 20,
+    "battery_full_plugged": 100,
+    "disk_min_free_gb": 10,
+    "ram_high": 90,
+    "cpu_high": 95,
+    "temp_high": 85,
+    "backup_days": 7,
+    "last_backup": null,
+    "cooldown": 3600,
+    "last_fired": {}
+}

@@ -8,6 +8,7 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.python-version
 
 # Logs
 *.log
@@ -17,12 +18,18 @@ logs/
 memory/*.json
 models/hey_jarvis*
 models/hey_kaizumi*
+models/training/
 
 # Local runtime state
 data/
+documents/
+out/
+build/
+dist/
 
 # Secrets — never commit API keys
 config/*.json
+!config/*.example.json
 config/telegram_offset.txt
 
 # IDE
@@ -35,7 +42,6 @@ Thumbs.db
 .DS_Store
 
 # Generated wake word assets (re-trained locally)
-models/training/
 models/hey_kaizumi_v0.1.onnx
 models/hey_kaizumi_v0.1.onnx.data
 

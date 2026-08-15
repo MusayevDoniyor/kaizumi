@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import threading
 import json
 import sys
@@ -28,7 +28,7 @@ except ModuleNotFoundError:
     genai = None
     types = None
 
-from ui import JarvisUI
+from ui import KaizumiUI
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
     should_extract_memory, extract_memory
@@ -327,11 +327,11 @@ _memory_lock       = threading.Lock()
 _memory_running    = False
 
 
-def _update_memory_async(user_text: str, jarvis_text: str) -> None:
+def _update_memory_async(user_text: str, assistant_text: str) -> None:
     global _last_memory_input, _memory_running
 
     user_text   = (user_text   or "").strip()
-    jarvis_text = (jarvis_text or "").strip()
+    assistant_text = (assistant_text or "").strip()
 
     if len(user_text) < 5 or user_text == _last_memory_input:
         return
@@ -346,9 +346,9 @@ def _update_memory_async(user_text: str, jarvis_text: str) -> None:
 
     try:
         api_key = _get_api_key()
-        if not should_extract_memory(user_text, jarvis_text, api_key):
+        if not should_extract_memory(user_text, assistant_text, api_key):
             return
-        data = extract_memory(user_text, jarvis_text, api_key)
+        data = extract_memory(user_text, assistant_text, api_key)
         if data:
             update_memory(data)
             print(f"[Memory] ✅ {list(data.keys())}")
@@ -786,7 +786,7 @@ TOOL_DECLARATIONS = [
                     )
                 },
                 "key":   {"type": "STRING", "description": "Short snake_case key (e.g. name, favorite_food, sister_name)"},
-                "value": {"type": "STRING", "description": "Concise value in English (e.g. Fatih, pizza, older sister)"},
+                "value": {"type": "STRING", "description": "Concise value in English (e.g. Alex, pizza, older sister)"},
             },
             "required": ["category", "key", "value"]
         }
@@ -916,8 +916,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "wake_word",
         "description": (
-            "Controls the hands-free wake word listener ('Hey Kaizumi', "
-            "or 'Hey Jarvis' before you record your own). "
+            "Controls the hands-free wake word listener ('Hey Kaizumi'). "
             "When active, Kaizumi sleeps until the wake word is said, then listens. "
             "'record' samples your voice and builds a 'Hey Kaizumi' reference. "
             "Use when the user says 'activate wake word', 'record the wake word', "
@@ -1373,9 +1372,9 @@ TOOL_DECLARATIONS = [
 ]
 
 
-class JarvisLive:
+class KaizumiLive:
 
-    def __init__(self, ui: JarvisUI, remote_port: int | None = None):
+    def __init__(self, ui: KaizumiUI, remote_port: int | None = None):
         self.ui             = ui
         self.session        = None
         self.audio_in_queue = None
@@ -2618,8 +2617,8 @@ class JarvisLive:
 
         def callback(indata, frames, time_info, status):
             with self._speaking_lock:
-                jarvis_speaking = self._is_speaking
-            if not jarvis_speaking and not self.ui.muted:
+                assistant_speaking = self._is_speaking
+            if not assistant_speaking and not self.ui.muted:
                 data = indata.tobytes()
                 loop.call_soon_threadsafe(self._safe_put_mic, data)
 
@@ -2861,7 +2860,7 @@ def main():
     _ensure_core_deps()
     log_file = setup_logger(BASE_DIR)
     log(f"Base dir: {BASE_DIR}\nLog file: {log_file}")
-    ui = JarvisUI("face.png")
+    ui = KaizumiUI("face.png")
 
     remote_port = None
     args = sys.argv[1:]
@@ -2876,10 +2875,10 @@ def main():
 
     def runner():
         ui.wait_for_api_key()
-        jarvis = JarvisLive(ui, remote_port=remote_port)
-        jarvis.attach_tray()
+        kaizumi = KaizumiLive(ui, remote_port=remote_port)
+        kaizumi.attach_tray()
         try:
-            asyncio.run(jarvis.run())
+            asyncio.run(kaizumi.run())
         except KeyboardInterrupt:
             print("\n🔴 Shutting down...")
 

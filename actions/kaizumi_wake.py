@@ -1,7 +1,7 @@
-# actions/kaizumi_wake.py
+﻿# actions/kaizumi_wake.py
 # Kaizumi — custom wake word "Hey Kaizumi" via a locally-trained classifier.
 #
-# Instead of shipping a pre-trained "hey jarvis" model, we train a small
+# Instead of shipping a pre-trained "hey kaizumi" model, we train a small
 # classifier (openwakeword-compatible: input (B,16,96) embedding windows,
 # output probability) on embeddings produced by the SAME onnx feature
 # extractors openwakeword uses at runtime (melspectrogram.onnx +
@@ -12,7 +12,7 @@
 # (positives) and some background noise / other speech (negatives), then
 # train → a tiny ONNX model is exported to models/hey_kaizumi_v0.1.onnx.
 # From then on the (already parameterized) wake_word.py engine loads and
-# runs it exactly like the jarvis model.
+# runs it exactly like the kaizumi model.
 
 import time
 import threading

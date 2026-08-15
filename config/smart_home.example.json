@@ -1,0 +1,12 @@
+{
+    "enabled": false,
+    "mode": "simulated",
+    "home_assistant": {
+        "url": "",
+        "token": ""
+    },
+    "webhook": {
+        "url": ""
+    },
+    "devices": []
+}

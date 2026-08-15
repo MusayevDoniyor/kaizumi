@@ -1,10 +1,10 @@
-# remote_bridge.py
+﻿# remote_bridge.py
 # Kaizumi — phone voice bridge.
 #
 # Runs a WebSocket server on the PC (ws://PC-IP:8765) plus a tiny HTTP page
 # server (http://PC-IP:8766) for the phone browser. The phone talks into the
 # mic and PCM audio is streamed straight into the SAME Gemini Live session
-# that local JARVIS uses. Tool calls, memory, and voice replies all work
+# that local KAIZUMI uses. Tool calls, memory, and voice replies all work
 # from the phone — no app install, no extra API keys.
 #
 # Event protocol (text frames = JSON):
@@ -31,20 +31,20 @@ _PENDING_LOCK = threading.Lock()
 _PENDING      = {}   # req_id -> (threading.Event, dict holder)
 
 
-def phone_connected(jarvis) -> bool:
-    return bool(getattr(jarvis, "remote_clients", None))
+def phone_connected(kaizumi) -> bool:
+    return bool(getattr(kaizumi, "remote_clients", None))
 
 
-def _request_phone(jarvis, payload: dict, timeout: float = 12.0) -> dict | None:
+def _request_phone(kaizumi, payload: dict, timeout: float = 12.0) -> dict | None:
     """Send a JSON request to the first connected phone and wait for its reply.
 
     The phone replies with the same req_id; the reply payload is returned, or
     None on timeout / no phone.
     """
-    clients = getattr(jarvis, "remote_clients", None)
+    clients = getattr(kaizumi, "remote_clients", None)
     if not clients:
         return None
-    loop = getattr(jarvis, "_loop", None)
+    loop = getattr(kaizumi, "_loop", None)
     if not loop:
         return None
     ws = next(iter(clients))
@@ -99,14 +99,14 @@ def _fail_all_pending(reason: str):
         event.set()
 
 
-def send_sms_via_phone(jarvis, phone: str, message: str) -> str:
+def send_sms_via_phone(kaizumi, phone: str, message: str) -> str:
     if not phone.strip():
         return "Please provide the phone number to text, sir."
     if not message.strip():
         return "Please provide the message text."
-    if not phone_connected(jarvis):
+    if not phone_connected(kaizumi):
         return "No phone is connected right now — connect the app first."
-    reply = _request_phone(jarvis, {"type": "sms_send", "phone": phone, "text": message})
+    reply = _request_phone(kaizumi, {"type": "sms_send", "phone": phone, "text": message})
     if reply is None:
         return "No reply from the phone (timeout) — is the Kaizumi app open and connected?"
     if not reply.get("ok"):
@@ -114,10 +114,10 @@ def send_sms_via_phone(jarvis, phone: str, message: str) -> str:
     return f"SMS sent to {phone}: {reply.get('detail') or 'delivered'}"
 
 
-def read_notifications_via_phone(jarvis, limit: int = 10) -> str:
-    if not phone_connected(jarvis):
+def read_notifications_via_phone(kaizumi, limit: int = 10) -> str:
+    if not phone_connected(kaizumi):
         return "No phone is connected right now — connect the app first."
-    reply = _request_phone(jarvis, {"type": "read_notifications", "limit": int(limit or 10)})
+    reply = _request_phone(kaizumi, {"type": "read_notifications", "limit": int(limit or 10)})
     if reply is None:
         return "No reply from the phone (timeout)."
     if not reply.get("ok"):
@@ -129,10 +129,10 @@ def read_notifications_via_phone(jarvis, limit: int = 10) -> str:
     return "Recent phone notifications:\n" + "\n".join(lines)
 
 
-def phone_info_via_phone(jarvis) -> str:
-    if not phone_connected(jarvis):
+def phone_info_via_phone(kaizumi) -> str:
+    if not phone_connected(kaizumi):
         return "No phone is connected right now — connect the app first."
-    reply = _request_phone(jarvis, {"type": "phone_info"})
+    reply = _request_phone(kaizumi, {"type": "phone_info"})
     if reply is None:
         return "No reply from the phone (timeout)."
     if not reply.get("ok"):
@@ -149,11 +149,11 @@ def phone_info_via_phone(jarvis) -> str:
     )
 
 
-def ring_phone_via_phone(jarvis) -> str:
+def ring_phone_via_phone(kaizumi) -> str:
     """Makes the connected phone vibrate + beep so the user can find it."""
-    if not phone_connected(jarvis):
+    if not phone_connected(kaizumi):
         return "No phone is connected right now — connect the app first."
-    reply = _request_phone(jarvis, {"type": "ring_phone"})
+    reply = _request_phone(kaizumi, {"type": "ring_phone"})
     if reply is None:
         return ("No reply from the phone (timeout) — is the Kaizumi app open, "
                 "on-screen and connected?")
@@ -166,7 +166,7 @@ def _phone_wake_service(on_detect):
     """A wake-word service fed by the PHONE's mic instead of the PC's."""
     try:
         from actions.wake_word import WakeWordService
-        svc = WakeWordService(model_file="hey_jarvis_v0.1.onnx", phrase="Hey Jarvis")
+        svc = WakeWordService(model_file="hey_kaizumi_v0.1.onnx", phrase="Hey Kaizumi")
         svc.configure(on_detect)
         if svc.load():
             return svc
@@ -177,15 +177,15 @@ def _phone_wake_service(on_detect):
         return None
 
 
-async def start_bridge(jarvis, port: int = DEFAULT_PORT):
-    """Start the remote bridge bound to a JarvisLive instance.
+async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
+    """Start the remote bridge bound to a KaizumiLive instance.
 
     Everything (HTML page + WebSocket) is served on a SINGLE port so the
     whole bridge can be exposed through one public tunnel. The phone page
     connects its WebSocket to the same origin (/ws), which works both on the
     LAN and behind an HTTPS tunnel.
 
-    jarvis must expose: remote_clients (set), ui (muted flag + write_log),
+    kaizumi must expose: remote_clients (set), ui (muted flag + write_log),
     out_queue (asyncio.Queue of audio media dicts), session.
     """
     from websockets.asyncio.server import serve
@@ -215,25 +215,25 @@ async def start_bridge(jarvis, port: int = DEFAULT_PORT):
     def _on_phone_wake(ws):
         try:
             payload = {"type": "wake"}
-            asyncio_run = getattr(jarvis, "_safely_send", None)
+            asyncio_run = getattr(kaizumi, "_safely_send", None)
             if asyncio_run:
                 asyncio_run(ws, payload)
             else:
                 print("[Bridge] Wake detected on phone but bridge can't send.")
-            jarvis.ui.write_log("SYS: 📱 Wake word heard on phone — listening.")
+            kaizumi.ui.write_log("SYS: 📱 Wake word heard on phone — listening.")
         except Exception as e:
             print(f"[Bridge] ⚠️ phone wake handler: {e}")
 
-    async def _handle_json(jarvis_, data: dict, ws):
+    async def _handle_json(kaizumi_, data: dict, ws):
         mtype = data.get("type")
         if mtype in ("sms_result", "notifications_result", "phone_info_result", "ping_result"):
             _resolve_pending(data)
         elif mtype == "text":
             text = str(data.get("text", "")).strip()
-            if text and jarvis_.session and jarvis_._send_lock:
+            if text and kaizumi_.session and kaizumi_._send_lock:
                 print(f"[Bridge] 📱 Text: {text[:80]}")
-                async with jarvis_._send_lock:
-                    await jarvis_.session.send_realtime_input(text=text)
+                async with kaizumi_._send_lock:
+                    await kaizumi_.session.send_realtime_input(text=text)
         elif mtype == "vision":
             import base64
             b64 = str(data.get("image", "")).strip()
@@ -254,18 +254,18 @@ async def start_bridge(jarvis, port: int = DEFAULT_PORT):
             await ws.send(json.dumps({"type": "vision", "answer": answer}, ensure_ascii=False))
 
     async def handler(ws):
-        jarvis.remote_clients.add(ws)
-        jarvis.ui.muted = True
-        jarvis.ui.write_log(f"SYS: 📱 Phone connected ({ws.remote_address[0]}) — mic muted, remote on.")
+        kaizumi.remote_clients.add(ws)
+        kaizumi.ui.muted = True
+        kaizumi.ui.write_log(f"SYS: 📱 Phone connected ({ws.remote_address[0]}) — mic muted, remote on.")
         print(f"[Bridge] 🎧 Phone connected: {ws.remote_address[0]}")
         _enable_phone_wake(ws)
-        await ws.send("Connected to Kaizumi. Say: Hey Jarvis, open YouTube…")
+        await ws.send("Connected to Kaizumi. Say: Hey Kaizumi, open YouTube…")
         try:
             async for msg in ws:
                 if isinstance(msg, (bytes, bytearray)) and msg:
                     # PCM int16 @16kHz mono → live session + phone wake check
-                    if jarvis.out_queue is not None:
-                        await jarvis.out_queue.put({"data": bytes(msg), "mime_type": "audio/pcm"})
+                    if kaizumi.out_queue is not None:
+                        await kaizumi.out_queue.put({"data": bytes(msg), "mime_type": "audio/pcm"})
                     phone_wake_svc = phone_wake["svc"]
                     if phone_wake_svc is not None:
                         try:
@@ -277,18 +277,18 @@ async def start_bridge(jarvis, port: int = DEFAULT_PORT):
                     try:
                         data = json.loads(msg)
                         if isinstance(data, dict):
-                            await _handle_json(jarvis, data, ws)
+                            await _handle_json(kaizumi, data, ws)
                     except json.JSONDecodeError:
-                        await _handle_json(jarvis, {"type": "text", "text": msg}, ws)
+                        await _handle_json(kaizumi, {"type": "text", "text": msg}, ws)
         except Exception as e:
             print(f"[Bridge] ⚠️ {e}")
         finally:
-            jarvis.remote_clients.discard(ws)
+            kaizumi.remote_clients.discard(ws)
             _disable_phone_wake()
             _fail_all_pending("phone disconnected")
-            if not jarvis.remote_clients:
-                jarvis.ui.muted = False
-                jarvis.ui.write_log("SYS: 📱 Remote off — local mode restored.")
+            if not kaizumi.remote_clients:
+                kaizumi.ui.muted = False
+                kaizumi.ui.write_log("SYS: 📱 Remote off — local mode restored.")
             print("[Bridge] 🎧 Phone disconnected")
 
     server = await serve(handler, "0.0.0.0", port,
