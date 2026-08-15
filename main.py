@@ -1515,16 +1515,23 @@ class JarvisLive:
             return
         async def _send():
             async with self._send_lock:
-                await self.session.send_client_content(
-                    turns={"parts": [{"text": text}]},
-                    turn_complete=True
-                )
+                await self.session.send_realtime_input(text=text)
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
 
     def set_speaking(self, value: bool):
         with self._speaking_lock:
             self._is_speaking = value
         self._set_phase(PHASE_SPEAKING if value else PHASE_LISTENING)
+
+    def _persona_info(self) -> tuple[str, str, str]:
+        """Return (mode, mood, voice) for the UI header badges."""
+        try:
+            memory       = load_memory()
+            mode, mood   = _get_style_from_memory(memory)
+            voice        = _get_voice_from_memory(memory)
+            return (mode, mood, voice)
+        except Exception:
+            return ("normal", "calm", "Aoede")
 
     def _set_phase(self, phase: str):
         with self._phase_lock:
@@ -1647,10 +1654,7 @@ class JarvisLive:
             return
         async def _send():
             async with self._send_lock:
-                await self.session.send_client_content(
-                    turns={"parts": [{"text": text}]},
-                    turn_complete=True
-                )
+                await self.session.send_realtime_input(text=text)
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
 
     def _log_tool_error(self, tool_name: str, tr: ToolResult):
@@ -1695,6 +1699,7 @@ class JarvisLive:
                         "butler, friend, casual.")
             update_memory({"preferences": {"assistant_mode": {"value": mode}}})
             self._schedule_session_reload()
+            self.ui.set_persona(*self._persona_info())
             return f"Mode set to: {mode}."
 
         def _set_voice(args):
@@ -1703,6 +1708,7 @@ class JarvisLive:
                 return ("Invalid voice. Use: " + ", ".join(VOICE_NAMES) + ".")
             update_memory({"preferences": {"assistant_voice": {"value": voice}}})
             self._schedule_session_reload()
+            self.ui.set_persona(*self._persona_info())
             return f"Voice set to: {voice}."
 
         def _set_mood(args):
@@ -1711,6 +1717,7 @@ class JarvisLive:
             if mood not in valid:
                 return f"Invalid mood '{mood}'. Use: calm, playful, romantic, strict."
             update_memory({"preferences": {"assistant_mood": {"value": mood}}})
+            self.ui.set_persona(*self._persona_info())
             return f"Mood set to: {mood}."
 
         def _api_add_key(args):
@@ -2787,6 +2794,7 @@ class JarvisLive:
                 try:
                     print("[KAIZUMI] 🔌 Connecting...")
                     self.ui.set_state("THINKING")
+                    self.ui.set_connecting(True)
                     config = self._build_config()
 
                     async with (
@@ -2802,6 +2810,8 @@ class JarvisLive:
 
                         log("Gemini session CONNECTED")
                         print("[KAIZUMI] ✅ Connected.")
+                        self.ui.set_connection(True)
+                        self.ui.set_persona(*self._persona_info())
                         self.ui.set_state("LISTENING")
                         self.ui.write_log("SYS: Kaizumi online.")
 
@@ -2823,6 +2833,7 @@ class JarvisLive:
                 self.out_queue      = None
                 self.audio_in_queue = None
                 self.set_speaking(False)
+                self.ui.set_connection(False)
                 self.ui.set_state("THINKING")
                 log("Session lost — reconnecting in 3s", level="WARN")
                 print("[KAIZUMI] 🔄 Reconnecting in 3s...")

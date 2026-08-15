@@ -15,47 +15,125 @@ def get_base_dir():
 BASE_DIR   = get_base_dir()
 CONFIG_DIR = BASE_DIR / "config"
 API_FILE   = CONFIG_DIR / "api_keys.json"
+THEME_FILE = CONFIG_DIR / "ui_theme.json"
 
 SYSTEM_NAME = "KAIZUMI"
 MODEL_BADGE = "KAIZUMI"
 
-C_BG     = "#000000"
-C_PRI    = "#00d4ff"
-C_MID    = "#007a99"
-C_DIM    = "#003344"
-C_DIMMER = "#001520"
-C_ACC    = "#ff6600"
-C_ACC2   = "#ffcc00"
-C_TEXT   = "#8ffcff"
-C_PANEL  = "#010c10"
-C_GREEN  = "#00ff88"
-C_RED    = "#ff3333"
-C_MUTED  = "#ff3366"
+# ── High-DPI awareness: crisp text on 125% / 150% laptop scaling ───────────
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
+# ── Themes ──────────────────────────────────────────────────────────────────
+# Each theme: UI colors + RGB tuples for the orb / halos.
+THEMES = {
+    "cyber": {
+        "name": "CYBER",
+        "bg": "#000000", "pri": "#00d4ff", "mid": "#007a99",
+        "dim": "#003344", "dimmer": "#001520",
+        "acc": "#ff6600", "acc2": "#ffcc00",
+        "text": "#8ffcff", "panel": "#010c10",
+        "green": "#00ff88", "red": "#ff3333", "mutcol": "#ff3366",
+        "hdr": "#00080d", "input": "#000d12", "inp_border": "#003344",
+        "halo": (0, 212, 255), "halo_mut": (255, 30, 80),
+        "orb": (0, 65, 120), "scan2": (255, 100, 0),
+    },
+    "ocean": {
+        "name": "OCEAN",
+        "bg": "#01060f", "pri": "#38bdf8", "mid": "#0e7490",
+        "dim": "#0a3a55", "dimmer": "#031a2e",
+        "acc": "#f97316", "acc2": "#fde047",
+        "text": "#bae6fd", "panel": "#02101c",
+        "green": "#4ade80", "red": "#f87171", "mutcol": "#fb7185",
+        "hdr": "#020b16", "input": "#02111f", "inp_border": "#0a3a55",
+        "halo": (56, 189, 248), "halo_mut": (251, 113, 133),
+        "orb": (7, 89, 133), "scan2": (251, 146, 60),
+    },
+    "aurora": {
+        "name": "AURORA",
+        "bg": "#010b07", "pri": "#4ade80", "mid": "#16a34a",
+        "dim": "#0b4f2c", "dimmer": "#032316",
+        "acc": "#facc15", "acc2": "#fde047",
+        "text": "#bbf7d0", "panel": "#02150c",
+        "green": "#4ade80", "red": "#f87171", "mutcol": "#fb7185",
+        "hdr": "#02130a", "input": "#02170d", "inp_border": "#0b4f2c",
+        "halo": (74, 222, 128), "halo_mut": (244, 63, 94),
+        "orb": (5, 80, 45), "scan2": (250, 204, 21),
+    },
+    "sunset": {
+        "name": "SUNSET",
+        "bg": "#0d0306", "pri": "#fb923c", "mid": "#9a3412",
+        "dim": "#5b1e0b", "dimmer": "#2a0d06",
+        "acc": "#f472b6", "acc2": "#fde047",
+        "text": "#fed7aa", "panel": "#17070a",
+        "green": "#4ade80", "red": "#f87171", "mutcol": "#fb7185",
+        "hdr": "#15080a", "input": "#1c0a0c", "inp_border": "#5b1e0b",
+        "halo": (251, 146, 60), "halo_mut": (251, 113, 133),
+        "orb": (120, 45, 20), "scan2": (253, 224, 71),
+    },
+}
+
+
+def _load_theme_name() -> str:
+    try:
+        if THEME_FILE.exists():
+            data = json.loads(THEME_FILE.read_text(encoding="utf-8"))
+            name = str(data.get("theme", "cyber")).strip()
+            if name in THEMES:
+                return name
+    except Exception:
+        pass
+    return "cyber"
+
+
+def _save_theme_name(name: str) -> None:
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        THEME_FILE.write_text(json.dumps({"theme": name}, indent=2),
+                              encoding="utf-8")
+    except Exception:
+        pass
 
 
 class JarvisUI:
     def __init__(self, face_path, size=None):
         self.root = tk.Tk()
         self.root.title("Kaizumi")
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
 
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        W  = min(sw, 984)
-        H  = min(sh, 816)
+        W  = min(sw, 1000)
+        H  = min(sh, 840)
         self.root.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
-        self.root.configure(bg=C_BG)
+        self.root.configure(bg="#000000")
+        self.root.minsize(640, 480)
 
         self.W = W
         self.H = H
 
-        self.FACE_SZ = min(int(H * 0.54), 400)
-        self.FCX     = W // 2
-        self.FCY     = int(H * 0.13) + self.FACE_SZ // 2
+        # DPI-scaled fonts: crisp on high-DPI laptop displays
+        try:
+            dpi = self.root.winfo_fpixels("1i")
+            self.root.tk.call("tk", "scaling", dpi / 72.0)
+        except Exception:
+            pass
 
-        # ── Durum ────────────────────────────────────────────────────────────
+        self.FACE_SZ = min(int(H * 0.40), 360)
+        self.FCX     = W // 2
+        self.FCY     = int(H * 0.11) + self.FACE_SZ // 2
+
+        # ── State ────────────────────────────────────────────────────────────
         self.speaking     = False
-        self.muted        = False          # Mute flag — main.py okur
+        self.muted        = False          # Mute flag — main.py reads it
         self.scale        = 1.0
         self.target_scale = 1.0
         self.halo_a       = 60.0
@@ -69,8 +147,6 @@ class JarvisUI:
         self.status_text  = "INITIALISING"
         self.status_blink = True
 
-        # Dışarıdan set edilebilen durum (main.py çağırır)
-        # Değerler: "LISTENING" | "SPEAKING" | "THINKING" | "MUTED" | "ONLINE"
         self._jarvis_state = "INITIALISING"
 
         self.typing_queue = deque()
@@ -78,46 +154,64 @@ class JarvisUI:
         self._ui_deferred = deque()
         self._main_thread = threading.current_thread()
 
-        # Klavye girişinden komutu iletmek için callback — main.py atar
+        # Persona / connection info (updated by main.py)
+        self.persona_mode  = "normal"
+        self.persona_mood  = "calm"
+        self.persona_voice = "Aoede"
+        self.connected     = False
+        self.connecting    = False
+        self.last_event    = ""
+        self._batt_cache   = None
+        self._batt_ts      = 0.0
+
         self.on_text_command = None
+
+        self._theme = _load_theme_name()
+        self.col    = dict(THEMES[self._theme])
+        self.root.configure(bg=self.col["bg"])
 
         self._face_pil         = None
         self._has_face         = False
         self._face_scale_cache = None
         self._load_face(face_path)
 
-        # ── Canvas (arka plan animasyon) ─────────────────────────────────────
+        # ── Canvas (background animation) ────────────────────────────────────
         self.bg = tk.Canvas(self.root, width=W, height=H,
-                            bg=C_BG, highlightthickness=0)
+                            bg=self.col["bg"], highlightthickness=0)
         self.bg.place(x=0, y=0)
 
-        # ── Log alanı ────────────────────────────────────────────────────────
+        # ── Log area ─────────────────────────────────────────────────────────
         LW = int(W * 0.72)
-        LH = 110
-        LOG_Y = H - LH - 80   # klavye inputu için yukarı çektik
-        self.log_frame = tk.Frame(self.root, bg=C_PANEL,
-                                  highlightbackground=C_MID,
+        LH = int(H * 0.11)
+        LOG_Y = H - LH - int(H * 0.13)
+        self.log_frame = tk.Frame(self.root, bg=self.col["panel"],
+                                  highlightbackground=self.col["mid"],
                                   highlightthickness=1)
         self.log_frame.place(x=(W - LW) // 2, y=LOG_Y, width=LW, height=LH)
-        self.log_text = tk.Text(self.log_frame, fg=C_TEXT, bg=C_PANEL,
-                                insertbackground=C_TEXT, borderwidth=0,
-                                wrap="word", font=("Courier", 10), padx=10, pady=6)
+        self.log_text = tk.Text(self.log_frame, fg=self.col["text"],
+                                bg=self.col["panel"],
+                                insertbackground=self.col["text"], borderwidth=0,
+                                wrap="word", font=("Segoe UI", 10), padx=10, pady=6)
         self.log_text.pack(fill="both", expand=True)
         self.log_text.configure(state="disabled")
         self.log_text.tag_config("you", foreground="#e8e8e8")
-        self.log_text.tag_config("ai",  foreground=C_PRI)
-        self.log_text.tag_config("sys", foreground=C_ACC2)
-        self.log_text.tag_config("err", foreground=C_RED)
+        self.log_text.tag_config("ai",  foreground=self.col["pri"])
+        self.log_text.tag_config("sys", foreground=self.col["acc2"])
+        self.log_text.tag_config("err", foreground=self.col["red"])
 
-        # ── Klavye girişi ─────────────────────────────────────────────────────
+        # ── Keyboard input ────────────────────────────────────────────────────
         INPUT_Y = LOG_Y + LH + 6
         self._build_input_bar(LW, INPUT_Y)
 
-        # ── Mute butonu ───────────────────────────────────────────────────────
+        # ── Mute button ───────────────────────────────────────────────────────
         self._build_mute_button()
 
-        # ── F4 kısayolu ───────────────────────────────────────────────────────
+        # ── Hotkeys ───────────────────────────────────────────────────────────
         self.root.bind("<F4>", lambda e: self._toggle_mute())
+        self.root.bind("<F5>", lambda e: self.cycle_theme())
+
+        # Re-layout widgets when the window is resized
+        self.root.bind("<Configure>", self._on_configure)
 
         # ── API key ───────────────────────────────────────────────────────────
         self._api_key_ready = self._api_keys_exist()
@@ -127,17 +221,72 @@ class JarvisUI:
         self._animate()
         self.root.protocol("WM_DELETE_WINDOW", lambda: os._exit(0))
 
-    # ── Mute butonu ───────────────────────────────────────────────────────────
+    # ── Theme ────────────────────────────────────────────────────────────────
+
+    def set_theme(self, name: str):
+        if name not in THEMES:
+            return
+        self._theme = name
+        self.col    = dict(THEMES[name])
+        _save_theme_name(name)
+        self._safe_ui(self._apply_theme_ui)
+
+    def cycle_theme(self):
+        names = list(THEMES.keys())
+        idx   = names.index(self._theme)
+        self.set_theme(names[(idx + 1) % len(names)])
+        self.write_log(f"SYS: Theme → {THEMES[self._theme]['name']}.")
+
+    def _apply_theme_ui(self):
+        self.root.configure(bg=self.col["bg"])
+        self.bg.configure(bg=self.col["bg"])
+        self.log_frame.configure(bg=self.col["panel"],
+                                 highlightbackground=self.col["mid"])
+        self.log_text.configure(fg=self.col["text"], bg=self.col["panel"])
+        self.log_text.tag_config("ai", foreground=self.col["pri"])
+        self.log_text.tag_config("sys", foreground=self.col["acc2"])
+        self.log_text.tag_config("err", foreground=self.col["red"])
+        self._draw_mute_button()
+        self._refresh_input_style()
+
+    def _refresh_input_style(self):
+        try:
+            self._input_text.configure(fg=self.col["text"],
+                                       bg=self.col["input"],
+                                       insertbackground=self.col["text"],
+                                       highlightbackground=self.col["inp_border"],
+                                       highlightcolor=self.col["pri"])
+            self._clear_btn.configure(fg=self.col["mid"],
+                                      highlightbackground=self.col["mid"])
+            self._send_btn.configure(fg=self.col["pri"],
+                                     highlightbackground=self.col["mid"])
+        except Exception:
+            pass
+
+    # ── Persona / connection (called from main.py) ───────────────────────────
+
+    def set_persona(self, mode: str, mood: str, voice: str):
+        self.persona_mode  = mode or "normal"
+        self.persona_mood  = mood or "calm"
+        self.persona_voice = voice or "Aoede"
+
+    def set_connection(self, ok: bool):
+        self.connected  = bool(ok)
+        self.connecting = False
+
+    def set_connecting(self, on: bool = True):
+        self.connecting = bool(on)
+
+    # ── Mute button ───────────────────────────────────────────────────────────
 
     def _build_mute_button(self):
-        """Sol alt köşeye mute butonu yerleştirir."""
         BTN_W, BTN_H = 110, 32
         BTN_X = 18
         BTN_Y = self.H - 70
 
         self._mute_canvas = tk.Canvas(
             self.root, width=BTN_W, height=BTN_H,
-            bg=C_BG, highlightthickness=0, cursor="hand2"
+            bg=self.col["bg"], highlightthickness=0, cursor="hand2"
         )
         self._mute_canvas.place(x=BTN_X, y=BTN_Y)
         self._mute_canvas.bind("<Button-1>", lambda e: self._toggle_mute())
@@ -147,21 +296,21 @@ class JarvisUI:
         c = self._mute_canvas
         c.delete("all")
         if self.muted:
-            border = C_MUTED
+            border = self.col["mutcol"]
             fill   = "#1a0008"
             icon   = "🔇"
             label  = " MUTED"
-            fg     = C_MUTED
+            fg     = self.col["mutcol"]
         else:
-            border = C_MID
-            fill   = C_PANEL
+            border = self.col["mid"]
+            fill   = self.col["panel"]
             icon   = "🎙"
             label  = " LIVE"
-            fg     = C_GREEN
+            fg     = self.col["green"]
 
         c.create_rectangle(0, 0, 110, 32, outline=border, fill=fill, width=1)
         c.create_text(55, 16, text=f"{icon}{label}",
-                      fill=fg, font=("Courier", 10, "bold"))
+                      fill=fg, font=("Segoe UI", 10, "bold"))
 
     def _toggle_mute(self):
         self.muted = not self.muted
@@ -173,11 +322,9 @@ class JarvisUI:
             self.set_state("LISTENING")
             self.write_log("SYS: Microphone active.")
 
-    # ── Klavye girişi ─────────────────────────────────────────────────────────
+    # ── Keyboard input ────────────────────────────────────────────────────────
 
     def _build_input_bar(self, lw: int, y: int):
-        """Log'ning ostiga ko'p qatorli matn kiritish maydoni.
-        Enter = yuborish, Shift+Enter = yangi qator, ↑/↓ = buyruq tarixi."""
         x0    = (self.W - lw) // 2
         BTN_W = 62
         CLR_W = 62
@@ -185,16 +332,16 @@ class JarvisUI:
 
         self._input_text = tk.Text(
             self.root,
-            fg=C_TEXT, bg="#000d12",
-            insertbackground=C_TEXT,
+            fg=self.col["text"], bg=self.col["input"],
+            insertbackground=self.col["text"],
             borderwidth=0,
-            font=("Courier", 10),
+            font=("Segoe UI", 10),
             wrap="word",
             height=2,
             padx=8, pady=4,
             highlightthickness=1,
-            highlightbackground=C_DIM,
-            highlightcolor=C_PRI,
+            highlightbackground=self.col["inp_border"],
+            highlightcolor=self.col["pri"],
         )
         self._input_text.place(x=x0, y=y, width=INP_W, height=46)
         self._input_text.bind("<Return>", self._on_input_submit)
@@ -212,12 +359,12 @@ class JarvisUI:
             self.root,
             text="CLEAR",
             command=self._on_clear_log,
-            fg=C_MID, bg=C_PANEL,
-            activeforeground=C_BG, activebackground=C_ACC2,
-            font=("Courier", 9, "bold"),
+            fg=self.col["mid"], bg=self.col["panel"],
+            activeforeground=self.col["bg"], activebackground=self.col["acc2"],
+            font=("Segoe UI", 9, "bold"),
             borderwidth=0, cursor="hand2",
             highlightthickness=1,
-            highlightbackground=C_MID,
+            highlightbackground=self.col["mid"],
         )
         self._clear_btn.place(x=x0 + INP_W + 4, y=y, width=CLR_W, height=46)
 
@@ -225,15 +372,45 @@ class JarvisUI:
             self.root,
             text="SEND ▸",
             command=self._on_input_submit,
-            fg=C_PRI, bg=C_PANEL,
-            activeforeground=C_BG, activebackground=C_PRI,
-            font=("Courier", 9, "bold"),
+            fg=self.col["pri"], bg=self.col["panel"],
+            activeforeground=self.col["bg"], activebackground=self.col["pri"],
+            font=("Segoe UI", 9, "bold"),
             borderwidth=0, cursor="hand2",
             highlightthickness=1,
-            highlightbackground=C_MID,
+            highlightbackground=self.col["mid"],
         )
         self._send_btn.place(x=x0 + INP_W + CLR_W + 8, y=y,
                              width=BTN_W, height=46)
+
+    def _relayout(self):
+        W, H = self.W, self.H
+        LW = int(W * 0.72)
+        LH = int(H * 0.11)
+        LOG_Y = H - LH - int(H * 0.13)
+        self.log_frame.place(x=(W - LW) // 2, y=LOG_Y, width=LW, height=LH)
+        INPUT_Y = LOG_Y + LH + 6
+        x0    = (W - LW) // 2
+        BTN_W = 62
+        CLR_W = 62
+        INP_W = LW - BTN_W - CLR_W - 8
+        self._input_text.place(x=x0, y=INPUT_Y, width=INP_W, height=46)
+        self._clear_btn.place(x=x0 + INP_W + 4, y=INPUT_Y, width=CLR_W, height=46)
+        self._send_btn.place(x=x0 + INP_W + CLR_W + 8, y=INPUT_Y,
+                             width=BTN_W, height=46)
+        self._mute_canvas.place(x=18, y=H - 70)
+
+    def _on_configure(self, event=None):
+        if event is None or event.widget is not self.root:
+            return
+        if event.width == self.W and event.height == self.H:
+            return
+        self.W = event.width
+        self.H = event.height
+        self.bg.configure(width=self.W, height=self.H)
+        self.FACE_SZ = min(int(self.H * 0.40), 360)
+        self.FCX     = self.W // 2
+        self.FCY     = int(self.H * 0.11) + self.FACE_SZ // 2
+        self._relayout()
 
     def _get_input(self) -> str:
         return self._input_text.get("1.0", "end-1c")
@@ -251,7 +428,7 @@ class JarvisUI:
         if not self._cmd_history:
             return "break"
         if self._hist_idx == -1:
-            self._draft   = self._get_input()
+            self._draft    = self._get_input()
             self._hist_idx = len(self._cmd_history)
         if self._hist_idx > 0:
             self._hist_idx -= 1
@@ -297,7 +474,7 @@ class JarvisUI:
         self.log_text.delete("1.0", tk.END)
         self.log_text.configure(state="disabled")
 
-    # ── Durum yönetimi ────────────────────────────────────────────────────────
+    # ── State management ─────────────────────────────────────────────────────
 
     def _safe_ui(self, fn, *args):
         """Run a UI mutation on the Tk main thread only (thread-safe)."""
@@ -310,7 +487,7 @@ class JarvisUI:
 
     def _set_state(self, state: str):
         """
-        main.py'den çağrılır.
+        Called from main.py.
         state: LISTENING | SPEAKING | THINKING | MUTED | ONLINE | PROCESSING
         """
         self._jarvis_state = state
@@ -333,7 +510,7 @@ class JarvisUI:
             self.status_text = "ONLINE"
             self.speaking    = False
 
-    # ── Yüz yükleme ───────────────────────────────────────────────────────────
+    # ── Face loading ─────────────────────────────────────────────────────────
 
     def _load_face(self, path):
         FW = self.FACE_SZ
@@ -352,7 +529,7 @@ class JarvisUI:
         f = a / 255.0
         return f"#{int(r*f):02x}{int(g*f):02x}{int(b*f):02x}"
 
-    # ── Animasyon döngüsü ─────────────────────────────────────────────────────
+    # ── Animation loop ───────────────────────────────────────────────────────
 
     def _animate(self):
         while self._ui_deferred:
@@ -400,7 +577,26 @@ class JarvisUI:
         self._draw()
         self.root.after(16, self._animate)
 
-    # ── Çizim ─────────────────────────────────────────────────────────────────
+    # ── Battery (cached, lightweight) ─────────────────────────────────────────
+
+    def _battery_text(self) -> str:
+        now = time.time()
+        if self._batt_cache is None or now - self._batt_ts > 5:
+            self._batt_ts = now
+            try:
+                import psutil
+                batt = psutil.sensors_battery()
+                if batt is None:
+                    self._batt_cache = None
+                else:
+                    self._batt_cache = int(batt.percent)
+            except Exception:
+                self._batt_cache = None
+        if self._batt_cache is None:
+            return ""
+        return f"🔋 {self._batt_cache}%"
+
+    # ── Drawing ──────────────────────────────────────────────────────────────
 
     def _draw(self):
         c    = self.bg
@@ -409,67 +605,59 @@ class JarvisUI:
         FCX  = self.FCX
         FCY  = self.FCY
         FW   = self.FACE_SZ
+        col  = self.col
         c.delete("all")
 
-        # Arka plan grid
+        # Background grid
         for x in range(0, W, 44):
             for y in range(0, H, 44):
-                c.create_rectangle(x, y, x+1, y+1, fill=C_DIMMER, outline="")
+                c.create_rectangle(x, y, x+1, y+1, fill=col["dimmer"], outline="")
 
-        # Halo halkaları
+        # Halo rings
+        halo_rgb  = col["halo_mut"] if self.muted else col["halo"]
         for r in range(int(FW * 0.54), int(FW * 0.28), -22):
             frac = 1.0 - (r - FW * 0.28) / (FW * 0.26)
             ga   = max(0, min(255, int(self.halo_a * 0.09 * frac)))
-            # Mute modda kırmızı halo
-            if self.muted:
-                gh = f"{ga:02x}"
-                c.create_oval(FCX-r, FCY-r, FCX+r, FCY+r,
-                              outline=f"#{gh}0011", width=2)
-            else:
-                gh = f"{ga:02x}"
-                c.create_oval(FCX-r, FCY-r, FCX+r, FCY+r,
-                              outline=f"#00{gh}ff", width=2)
+            c.create_oval(FCX-r, FCY-r, FCX+r, FCY+r,
+                          outline=self._ac(*halo_rgb, ga), width=2)
 
-        # Pulse dalgaları
+        # Pulse waves
         for pr in self.pulse_r:
             pa = max(0, int(220 * (1.0 - pr / (FW * 0.72))))
             r  = int(pr)
-            if self.muted:
-                c.create_oval(FCX-r, FCY-r, FCX+r, FCY+r,
-                              outline=self._ac(255, 30, 80, pa // 3), width=2)
-            else:
-                c.create_oval(FCX-r, FCY-r, FCX+r, FCY+r,
-                              outline=self._ac(0, 212, 255, pa), width=2)
+            colr = halo_rgb if not self.muted else (255, 30, 80)
+            c.create_oval(FCX-r, FCY-r, FCX+r, FCY+r,
+                          outline=self._ac(*colr, pa if not self.muted else pa // 3),
+                          width=2)
 
-        # Dönen halkalar
+        # Spinning rings
         for idx, (r_frac, w_ring, arc_l, gap) in enumerate([
                 (0.47, 3, 110, 75), (0.39, 2, 75, 55), (0.31, 1, 55, 38)]):
             ring_r = int(FW * r_frac)
             base_a = self.rings_spin[idx]
             a_val  = max(0, min(255, int(self.halo_a * (1.0 - idx * 0.18))))
-            col    = self._ac(255, 30, 80, a_val) if self.muted else self._ac(0, 212, 255, a_val)
+            rcol   = halo_rgb if not self.muted else (255, 30, 80)
             for s in range(360 // (arc_l + gap)):
                 start = (base_a + s * (arc_l + gap)) % 360
                 c.create_arc(FCX-ring_r, FCY-ring_r, FCX+ring_r, FCY+ring_r,
                              start=start, extent=arc_l,
-                             outline=col, width=w_ring, style="arc")
+                             outline=self._ac(*rcol, a_val), width=w_ring, style="arc")
 
-        # Tarama yayları
+        # Scan arcs
         sr      = int(FW * 0.49)
         scan_a  = min(255, int(self.halo_a * 1.4))
         arc_ext = 70 if self.speaking else 42
-        scan_col = self._ac(255, 30, 80, scan_a) if self.muted else self._ac(0, 212, 255, scan_a)
         c.create_arc(FCX-sr, FCY-sr, FCX+sr, FCY+sr,
                      start=self.scan_angle, extent=arc_ext,
-                     outline=scan_col, width=3, style="arc")
+                     outline=self._ac(*halo_rgb, scan_a), width=3, style="arc")
         c.create_arc(FCX-sr, FCY-sr, FCX+sr, FCY+sr,
                      start=self.scan2_angle, extent=arc_ext,
-                     outline=self._ac(255, 100, 0, scan_a // 2), width=2, style="arc")
+                     outline=self._ac(*col["scan2"], scan_a // 2), width=2, style="arc")
 
-        # Derecelendirme işaretleri
+        # Ticks
         t_out = int(FW * 0.495)
         t_in  = int(FW * 0.472)
-        a_mk  = self._ac(0, 212, 255, 155)
+        a_mk  = self._ac(*halo_rgb, 155)
         for deg in range(0, 360, 10):
             rad = math.radians(deg)
             inn = t_in if deg % 30 == 0 else t_in + 5
@@ -480,15 +668,15 @@ class JarvisUI:
         # Crosshair
         ch_r = int(FW * 0.50)
         gap  = int(FW * 0.15)
-        ch_a = self._ac(0, 212, 255, int(self.halo_a * 0.55))
+        ch_a = self._ac(*halo_rgb, int(self.halo_a * 0.55))
         for x1, y1, x2, y2 in [
                 (FCX - ch_r, FCY, FCX - gap, FCY), (FCX + gap, FCY, FCX + ch_r, FCY),
                 (FCX, FCY - ch_r, FCX, FCY - gap), (FCX, FCY + gap, FCX, FCY + ch_r)]:
             c.create_line(x1, y1, x2, y2, fill=ch_a, width=1)
 
-        # Köşe braketleri
+        # Corner brackets
         blen = 22
-        bc   = self._ac(0, 212, 255, 200)
+        bc   = self._ac(*halo_rgb, 200)
         hl = FCX - FW // 2; hr = FCX + FW // 2
         ht = FCY - FW // 2; hb = FCY + FW // 2
         for bx, by, sdx, sdy in [(hl, ht, 1, 1), (hr, ht, -1, 1),
@@ -496,26 +684,18 @@ class JarvisUI:
             c.create_line(bx, by, bx + sdx * blen, by,            fill=bc, width=2)
             c.create_line(bx, by, bx,               by + sdy * blen, fill=bc, width=2)
 
-        # Yüz / orb
+        # Face / orb
         if self._has_face:
             fw = int(FW * self.scale)
             if (self._face_scale_cache is None or
                     abs(self._face_scale_cache[0] - self.scale) > 0.004):
                 scaled = self._face_pil.resize((fw, fw), Image.BILINEAR)
-                # Mute'ta hafif kırmızı tint
-                if self.muted:
-                    tinted = scaled.copy()
-                    r_ch, g_ch, b_ch, a_ch = tinted.split()
-                    from PIL import ImageEnhance
-                    g_ch = ImageEnhance.Brightness(
-                        Image.fromarray(__import__('numpy').array(g_ch) // 2)
-                    ).enhance(1.0) if False else g_ch   # basit: sadece önce cache
                 tk_img = ImageTk.PhotoImage(scaled)
                 self._face_scale_cache = (self.scale, tk_img)
             c.create_image(FCX, FCY, image=self._face_scale_cache[1])
         else:
             orb_r = int(FW * 0.27 * self.scale)
-            orb_color = (255, 30, 80) if self.muted else (0, 65, 120)
+            orb_color = (255, 30, 80) if self.muted else col["orb"]
             for i in range(7, 0, -1):
                 r2   = int(orb_r * i / 7)
                 frac = i / 7
@@ -526,52 +706,68 @@ class JarvisUI:
                                             int(orb_color[2]*frac), ga),
                               outline="")
             c.create_text(FCX, FCY, text=SYSTEM_NAME,
-                          fill=self._ac(0, 212, 255, min(255, int(self.halo_a * 2))),
-                          font=("Courier", 14, "bold"))
+                          fill=self._ac(*halo_rgb, min(255, int(self.halo_a * 2))),
+                          font=("Segoe UI", 14, "bold"))
 
         # ── Header ────────────────────────────────────────────────────────────
-        HDR = 62
-        c.create_rectangle(0, 0, W, HDR, fill="#00080d", outline="")
-        c.create_line(0, HDR, W, HDR, fill=C_MID, width=1)
-        c.create_text(W // 2, 22, text=SYSTEM_NAME,
-                      fill=C_PRI, font=("Courier", 18, "bold"))
-        c.create_text(W // 2, 44, text="Just A Rather Very Intelligent System",
-                      fill=C_MID, font=("Courier", 9))
-        c.create_text(16, 31, text=MODEL_BADGE,
-                      fill=C_DIM, font=("Courier", 9), anchor="w")
-        c.create_text(W - 16, 31, text=time.strftime("%H:%M:%S"),
-                      fill=C_PRI, font=("Courier", 14, "bold"), anchor="e")
+        HDR = 78
+        c.create_rectangle(0, 0, W, HDR, fill=col["hdr"], outline="")
+        c.create_line(0, HDR, W, HDR, fill=col["mid"], width=1)
+        c.create_text(W // 2, 16, text=SYSTEM_NAME,
+                      fill=col["pri"], font=("Segoe UI", 15, "bold"))
+        c.create_text(W // 2, 36, text="Just A Rather Very Intelligent System",
+                      fill=col["mid"], font=("Segoe UI", 8))
+        c.create_text(16, 16, text=MODEL_BADGE,
+                      fill=col["dim"], font=("Segoe UI", 8), anchor="w")
+        c.create_text(W - 16, 18, text=time.strftime("%H:%M:%S"),
+                      fill=col["pri"], font=("Segoe UI", 12, "bold"), anchor="e")
 
-        # ── Durum göstergesi ──────────────────────────────────────────────────
+        # Connection indicator (right side of header)
+        if self.connecting:
+            conn_txt, conn_col = "◌ CONNECTING", col["acc2"]
+        elif self.connected:
+            conn_txt, conn_col = "● ONLINE", col["green"]
+        else:
+            conn_txt, conn_col = "○ OFFLINE", col["red"]
+        c.create_text(W - 16, 40, text=conn_txt, fill=conn_col,
+                      font=("Segoe UI", 8, "bold"), anchor="e")
+
+        # Persona badges (left side of header)
+        badge = (f"◈ {self.persona_mode.upper()} · "
+                 f"{self.persona_mood.upper()} · {self.persona_voice}")
+        c.create_text(16, 40, text=badge, fill=col["acc2"],
+                      font=("Segoe UI", 8, "bold"), anchor="w")
+
+        # ── Status indicator ──────────────────────────────────────────────────
         sy = FCY + FW // 2 + 45
 
         if self.muted:
             stat = "⊘ MUTED"
-            sc   = C_MUTED
+            sc   = col["mutcol"]
         elif self.speaking:
             stat = "● SPEAKING"
-            sc   = C_ACC
+            sc   = col["acc"]
         elif self._jarvis_state == "THINKING":
             sym  = "◈" if self.status_blink else "◇"
             stat = f"{sym} THINKING"
-            sc   = C_ACC2
+            sc   = col["acc2"]
         elif self._jarvis_state == "PROCESSING":
             sym  = "▷" if self.status_blink else "▶"
             stat = f"{sym} PROCESSING"
-            sc   = C_ACC2
+            sc   = col["acc2"]
         elif self._jarvis_state == "LISTENING":
             sym  = "●" if self.status_blink else "○"
             stat = f"{sym} LISTENING"
-            sc   = C_GREEN
+            sc   = col["green"]
         else:
             sym  = "●" if self.status_blink else "○"
             stat = f"{sym} {self.status_text}"
-            sc   = C_PRI
+            sc   = col["pri"]
 
         c.create_text(W // 2, sy, text=stat,
-                      fill=sc, font=("Courier", 11, "bold"))
+                      fill=sc, font=("Segoe UI", 11, "bold"))
 
-        # ── Ses dalgası ───────────────────────────────────────────────────────
+        # ── Sound wave ────────────────────────────────────────────────────────
         wy = sy + 22
         N  = 32
         BH = 18
@@ -581,26 +777,35 @@ class JarvisUI:
         for i in range(N):
             if self.muted:
                 hb  = 2
-                col = C_MUTED
+                wcol = col["mutcol"]
             elif self.speaking:
                 hb  = random.randint(3, BH)
-                col = C_PRI if hb > BH * 0.6 else C_MID
+                wcol = col["pri"] if hb > BH * 0.6 else col["mid"]
             else:
                 hb  = int(3 + 2 * math.sin(t * 0.08 + i * 0.55))
-                col = C_DIM
+                wcol = col["dim"]
             bx = wx0 + i * bw
             c.create_rectangle(bx, wy + BH - hb, bx + bw - 1, wy + BH,
-                                fill=col, outline="")
+                               fill=wcol, outline="")
 
-        # ── Footer ────────────────────────────────────────────────────────────
-        c.create_rectangle(0, H - 28, W, H, fill="#00080d", outline="")
-        c.create_line(0, H - 28, W, H - 28, fill=C_DIM, width=1)
+        # ── Footer / status bar ───────────────────────────────────────────────
+        c.create_rectangle(0, H - 40, W, H, fill=col["hdr"], outline="")
+        c.create_line(0, H - 40, W, H - 40, fill=col["dim"], width=1)
 
-        # F4 ipucu sağ tarafta
-        c.create_text(W - 16, H - 14, fill=C_DIM, font=("Courier", 8),
-                      text="[F4] MUTE", anchor="e")
-        c.create_text(W // 2, H - 14, fill=C_DIM, font=("Courier", 8),
-                      text="Kaizumi  ·  CLASSIFIED")
+        # Last system event (alerts, reminders) — center-left
+        if self.last_event:
+            ev = self.last_event if len(self.last_event) <= 72 else self.last_event[:69] + "..."
+            c.create_text(W // 2, H - 26, text=ev, fill=col["mid"],
+                          font=("Segoe UI", 8), anchor="center")
+
+        # Battery + hints — right side
+        batt = self._battery_text()
+        hints = "  ".join(x for x in [batt, "[F4] MUTE", "[F5] THEME"] if x)
+        c.create_text(W - 16, H - 14, text=hints, fill=col["dim"],
+                      font=("Segoe UI", 8), anchor="e")
+
+        c.create_text(16, H - 14, text=f"Kaizumi · {THEMES[self._theme]['name']}",
+                      fill=col["dim"], font=("Segoe UI", 8), anchor="w")
 
     # ── Log ───────────────────────────────────────────────────────────────────
 
@@ -609,6 +814,12 @@ class JarvisUI:
 
     def _write_log(self, text: str):
         self.typing_queue.append(text)
+        stripped = text
+        for prefix in ("[Guardian]", "[Monitor]", "[Email]", "⏰", "SYS:"):
+            if text.startswith(prefix):
+                stripped = text[len(prefix):].strip(" :")
+                break
+        self.last_event = stripped or self.last_event
         tl = text.lower()
         if tl.startswith("you:"):
             self.set_state("PROCESSING")
@@ -647,7 +858,7 @@ class JarvisUI:
             self.log_text.configure(state="disabled")
             self.root.after(25, self._start_typing)
 
-    # ── Eski compat metotlar (main.py hâlâ bunları çağırabilir) ──────────────
+    # ── Legacy compat methods (main.py may still call them) ──────────────────
 
     def start_speaking(self):
         self.set_state("SPEAKING")
@@ -667,29 +878,35 @@ class JarvisUI:
 
     def _show_setup_ui(self):
         self.setup_frame = tk.Frame(
-            self.root, bg="#00080d",
-            highlightbackground=C_PRI, highlightthickness=1
+            self.root, bg=THEMES[self._theme]["hdr"],
+            highlightbackground=THEMES[self._theme]["pri"], highlightthickness=1
         )
         self.setup_frame.place(relx=0.5, rely=0.5, anchor="center")
 
         tk.Label(self.setup_frame, text="◈  INITIALISATION REQUIRED",
-                 fg=C_PRI, bg="#00080d", font=("Courier", 13, "bold")).pack(pady=(18, 4))
+                 fg=THEMES[self._theme]["pri"], bg=THEMES[self._theme]["hdr"],
+                 font=("Segoe UI", 13, "bold")).pack(pady=(18, 4))
         tk.Label(self.setup_frame,
                  text="Enter your Gemini API key to boot Kaizumi.",
-                 fg=C_MID, bg="#00080d", font=("Courier", 9)).pack(pady=(0, 10))
+                 fg=THEMES[self._theme]["mid"], bg=THEMES[self._theme]["hdr"],
+                 font=("Segoe UI", 9)).pack(pady=(0, 10))
 
         tk.Label(self.setup_frame, text="GEMINI API KEY",
-                 fg=C_DIM, bg="#00080d", font=("Courier", 9)).pack(pady=(8, 2))
+                 fg=THEMES[self._theme]["dim"], bg=THEMES[self._theme]["hdr"],
+                 font=("Segoe UI", 9)).pack(pady=(8, 2))
         self.gemini_entry = tk.Entry(
-            self.setup_frame, width=52, fg=C_TEXT, bg="#000d12",
-            insertbackground=C_TEXT, borderwidth=0, font=("Courier", 10), show="*"
+            self.setup_frame, width=52, fg=THEMES[self._theme]["text"],
+            bg=THEMES[self._theme]["input"],
+            insertbackground=THEMES[self._theme]["text"], borderwidth=0,
+            font=("Segoe UI", 10), show="*"
         )
         self.gemini_entry.pack(pady=(0, 4))
 
         tk.Button(
             self.setup_frame, text="▸  INITIALISE SYSTEMS",
-            command=self._save_api_keys, bg=C_BG, fg=C_PRI,
-            activebackground="#003344", font=("Courier", 10),
+            command=self._save_api_keys, bg=THEMES[self._theme]["bg"],
+            fg=THEMES[self._theme]["pri"],
+            activebackground=THEMES[self._theme]["mid"], font=("Segoe UI", 10),
             borderwidth=0, pady=8
         ).pack(pady=14)
 
