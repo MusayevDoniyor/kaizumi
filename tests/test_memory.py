@@ -55,7 +55,7 @@ class MemoryTest(unittest.TestCase):
         self.assertEqual(mm.load_memory()["identity"], {})
 
     def test_secrets_never_stored(self):
-        mm.remember("api_key", "AIzaSyB-dfuDVaKHyKW5ssF-vz9alM_-EnG7WN8", "notes")
+        mm.remember("api_key", "AIzaSyINVALIDTESTKEY-NOT-A-REAL-KEY-12345", "notes")
         mm.remember("wifi_password", "hunter2secret", "notes")
         mem = mm.load_memory()
         self.assertNotIn("api_key", mem["notes"])
