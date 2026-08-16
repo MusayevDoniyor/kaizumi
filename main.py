@@ -809,6 +809,36 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "forget_memory",
+        "description": (
+            "Delete a specific fact from long-term memory. "
+            "Use when the user asks to forget/remove something they told you, "
+            "e.g. 'forget that I like X', 'remove my name from memory'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "key":      {"type": "STRING", "description": "The key to remove (e.g. 'name', 'favorite_food', 'sister_name')"},
+                "category": {"type": "STRING", "description": "Category containing the key: identity | preferences | projects | relationships | wishes | notes (default notes)"}
+            },
+            "required": ["key"]
+        }
+    },
+    {
+        "name": "clear_memory",
+        "description": (
+            "Clear all long-term memory, or just one category. "
+            "Use when the user asks to clear/reset memory, e.g. 'forget everything'."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "category": {"type": "STRING", "description": "Optional: only clear this category (identity | preferences | projects | relationships | wishes | notes). Empty = clear everything."}
+            },
+            "required": []
+        }
+    },
+    {
         "name": "task_manager",
         "description": (
             "Check or control background agent tasks started via agent_task. "
@@ -1371,6 +1401,23 @@ TOOL_DECLARATIONS = [
     },
 ]
 
+# ── Safety: inject a `confirm` flag into every tool that may be HIGH risk ────
+# The model can pass confirm=true only after the user explicitly approves. The
+# gate in _execute_tool/_dispatch_tool enforces this centrally (see safety.py).
+for _decl in TOOL_DECLARATIONS:
+    _name = _decl.get("name", "")
+    if _name in {
+        "cmd_control", "desktop_control", "file_controller", "gmail",
+        "send_sms", "task_manager", "code_helper", "game_updater",
+        "computer_settings", "computer_control", "calendar", "drive",
+        "smart_home_control", "browser_control", "send_message", "autostart",
+    }:
+        _decl.setdefault("parameters", {}).setdefault("properties", {})[
+            "confirm"
+        ] = {"type": "BOOLEAN",
+             "description": ("Must be TRUE only after the user explicitly "
+                             "approves this action.")}
+
 
 class KaizumiLive:
 
@@ -1407,6 +1454,14 @@ class KaizumiLive:
             self.telegram_chat  = _tg_cfg.get("telegram_chat_id")
         except Exception:
             pass
+        # Environment overrides (docker / dev / CI friendly).
+        if os.environ.get("KAIZUMI_TELEGRAM_TOKEN"):
+            self.telegram_token = os.environ["KAIZUMI_TELEGRAM_TOKEN"].strip() or None
+        if os.environ.get("KAIZUMI_TELEGRAM_CHAT_ID"):
+            try:
+                self.telegram_chat = int(os.environ["KAIZUMI_TELEGRAM_CHAT_ID"])
+            except (TypeError, ValueError):
+                self.telegram_chat = os.environ["KAIZUMI_TELEGRAM_CHAT_ID"]
 
         try:
             wake_service.configure(on_detect=self._on_wake_detect)
@@ -1678,6 +1733,14 @@ class KaizumiLive:
             from memory.memory_manager import search_memory
             return search_memory(args.get("query", ""), args.get("category", ""))
 
+        def _forget(args):
+            from memory.memory_manager import forget_memory
+            return forget_memory(args.get("key", ""), args.get("category", "notes"))
+
+        def _clear_mem(args):
+            from memory.memory_manager import clear_memory
+            return clear_memory(args.get("category", ""))
+
         def _wake(args):
             from actions.wake_word import wake_word as wake_word_action
             return wake_word_action(parameters=args, player=ui)
@@ -1784,6 +1847,8 @@ class KaizumiLive:
             "clipboard":         (lambda a: clipboard_action(parameters=a, player=ui), 45),
             "vision_gesture":    (lambda a: vision_gesture(parameters=a, player=ui, speak=speak), 120),
             "recall_memory":     (_recall, 20),
+            "forget_memory":     (_forget, 10),
+            "clear_memory":      (_clear_mem, 10),
             "game_updater":      (lambda a: game_updater(parameters=a, player=ui, speak=speak), 120),
             "flight_finder":     (lambda a: flight_finder(parameters=a, player=ui), 120),
             "notify":            (lambda a: notify(parameters=a, player=ui), 30),
@@ -1813,15 +1878,29 @@ class KaizumiLive:
         }
 
     async def _dispatch_tool(self, name: str, args: dict) -> ToolResult:
+        from safety import sanitize as _sanitize
         blocked = self.loop_guard.check(name, args)
         if blocked:
             print(f"[KAIZUMI] 🛑 {name} blocked by loop guard")
             return ToolResult(ok=False, content=blocked, error_kind="loop")
 
+        # ── Safety gate: high-risk actions need explicit user confirmation ──
+        from safety import needs_confirmation, describe, CONFIRM_MESSAGE, CONFIRM_PARAM
+        confirm = bool(args.pop(CONFIRM_PARAM, False))
+        if needs_confirmation(name, args, confirm=confirm):
+            print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
+            return ToolResult(
+                ok=True,
+                content=CONFIRM_MESSAGE.format(desc=describe(name, args),
+                                               param=CONFIRM_PARAM),
+                error_kind="confirmation",
+            )
+
         entry = self._tool_handlers.get(name)
         if entry is None:
             return ToolResult(ok=False, content=f"Unknown tool: {name}", error_kind="fatal")
 
+        print(f"[Telegram] 🔧 {name} {_sanitize(name, args)}")
         fn, timeout = entry
         return await run_sync_tool(lambda: fn(args), name, timeout=timeout)
 
@@ -1888,8 +1967,9 @@ class KaizumiLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        log_tool(name, args)
-        print(f"[KAIZUMI] 🔧 {name}  {args}")
+        from safety import sanitize as _sanitize
+        log_tool(name, _sanitize(name, args))
+        print(f"[KAIZUMI] 🔧 {name}  {_sanitize(name, args)}")
         self.ui.set_state("THINKING")
 
         # ── save_memory: sessiz, hızlı, Gemini'ye bildirim yok ───────────────
@@ -1961,8 +2041,23 @@ class KaizumiLive:
         loop   = asyncio.get_event_loop()
         result = "Done."
 
+        # ── Safety gate: high-risk actions need explicit user confirmation ──
+        from safety import needs_confirmation, describe, CONFIRM_MESSAGE, CONFIRM_PARAM, sanitize
+        if needs_confirmation(name, args, confirm=bool(args.pop(CONFIRM_PARAM, False))):
+            print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
+            log_tool(name, args, error="confirmation required")
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": CONFIRM_MESSAGE.format(
+                    desc=describe(name, args), param=CONFIRM_PARAM)}
+            )
+
         self.broadcast_remote({"type": "tool", "name": name, "status": "start",
-                               "summary": " ".join(str(v) for v in args.values())[:120]})
+                               "summary": " ".join(
+                                   str(v) for v in sanitize(name, args).values()
+                               )[:120]})
         try:
             if name == "open_app":
                 r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
@@ -2056,6 +2151,22 @@ class KaizumiLive:
                     lambda: search_memory(args.get("query", ""), args.get("category", ""))
                 )
                 result = r or "No memory found."
+
+            elif name == "forget_memory":
+                from memory.memory_manager import forget_memory
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: forget_memory(args.get("key", ""), args.get("category", "notes"))
+                )
+                result = r
+
+            elif name == "clear_memory":
+                from memory.memory_manager import clear_memory
+                r = await loop.run_in_executor(
+                    None,
+                    lambda: clear_memory(args.get("category", ""))
+                )
+                result = r
 
             elif name == "game_updater":
                 r = await loop.run_in_executor(None, lambda: game_updater(parameters=args, player=self.ui, speak=self.speak))
@@ -2373,13 +2484,14 @@ class KaizumiLive:
             for fc in calls:
                 name = fc.name
                 args = dict(fc.args or {})
+                from safety import sanitize as _sanitize
                 tr = await self._dispatch_tool(name, args)
                 raw = str(tr.content) if tr.ok else f"error: {tr.content}"
                 if tr.ok and not str(tr.content).strip():
                     raw = f"(tool {name} returned no data)"
                 result = raw[:400]
                 tool_results.append(f"{name}: {result[:120]}")
-                print(f"[Telegram] 🔧 {name} {args} → {str(result)[:80]}")
+                print(f"[Telegram] 🔧 {name} {_sanitize(name, args)} → {str(result)[:80]}")
                 tool_parts.append(gtypes.Part(
                     function_response=gtypes.FunctionResponse(
                         name=name, response={"result": result})))
@@ -2776,9 +2888,14 @@ class KaizumiLive:
         bridge = None
         if self.remote_port:
             try:
-                from remote_bridge import start_bridge
+                from remote_bridge import start_bridge, get_bridge_token
                 bridge = await start_bridge(self, self.remote_port)
+                _btok = get_bridge_token()
                 log(f"Bridge ON (port {self.remote_port}, page + /ws)")
+                if _btok:
+                    self.ui.write_log(
+                        "SYS: 📱 Remote access token: " + _btok + " — enter it on the phone page."
+                    )
             except Exception as e:
                 log(f"Bridge FAILED: {e}", level="ERROR")
                 print(f"[Bridge] ⚠️ Could not start bridge: {e}")

@@ -31,6 +31,7 @@ dist/
 config/*.json
 !config/*.example.json
 config/telegram_offset.txt
+config/bridge_token.txt
 
 # IDE
 .idea/

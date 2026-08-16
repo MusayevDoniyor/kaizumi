@@ -284,7 +284,10 @@ def _focus_window(title: str) -> str:
     """Brings a window to focus by title (Windows)."""
     if platform.system() == "Windows":
         try:
-            script = f'(New-Object -ComObject WScript.Shell).AppActivate("{title}")'
+            # Single-quote the title and double any embedded quotes so a
+            # malicious title can never break out of the PowerShell script.
+            safe_title = title.replace("'", "''")
+            script = f"(New-Object -ComObject WScript.Shell).AppActivate('{safe_title}')"
             subprocess.run(
                 ["powershell", "-NoProfile", "-Command", script],
                 capture_output=True, timeout=5

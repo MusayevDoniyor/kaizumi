@@ -97,10 +97,34 @@ def log(msg, level="INFO"):
 
 
 def log_tool(name, args, result=None, error=None):
-    summary = " ".join(str(v) for v in (args or {}).values())[:200]
+    safe = _redact(args)
+    summary = " ".join(str(v) for v in safe.values())[:200]
     line = f"ACTION  tool={name}  args={summary}"
     if error is not None:
         line += f"  => ERROR: {error}"
     elif result is not None:
         line += f"  => {str(result)[:200]}"
     log(line, level="INFO")
+
+
+# Keys whose values are masked in logs (defense-in-depth: even callers that
+# forget to sanitize cannot leak secrets through the log file).
+_REDACT_KEYS = frozenset({
+    "api_key", "api_key_id", "apikey", "token", "access_token", "auth_token",
+    "password", "passwd", "secret", "client_secret", "key",
+})
+
+
+def _redact(value, depth=0):
+    if depth > 3:
+        return value
+    if isinstance(value, dict):
+        return {
+            k: ("***" if str(k).lower() in _REDACT_KEYS
+                or "token" in str(k).lower() or "secret" in str(k).lower()
+                else _redact(v, depth + 1))
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact(v, depth + 1) for v in value]
+    return value

@@ -8,6 +8,7 @@ cooldown expires (daily quota resets), so old keys keep working again later.
 """
 import hashlib
 import json
+import os
 import sys
 import threading
 import time
@@ -53,14 +54,21 @@ def _save_state() -> None:
 
 
 def get_all_keys() -> list:
+    keys = []
+    # Environment variables first (dev / CI / docker friendly).
+    env_key = os.environ.get("KAIZUMI_GEMINI_API_KEY", "").strip()
+    env_keys = os.environ.get("KAIZUMI_GEMINI_API_KEYS", "").strip()
+    if env_key:
+        keys.append(env_key)
+    if env_keys:
+        keys.extend(k.strip() for k in env_keys.split(",") if k.strip())
     try:
         cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         cfg = {}
-    keys = []
     lst = cfg.get("gemini_api_keys")
     if isinstance(lst, list):
-        keys = [k for k in lst if isinstance(k, str) and k.strip()]
+        keys.extend(k for k in lst if isinstance(k, str) and k.strip())
     single = cfg.get("gemini_api_key")
     if isinstance(single, str) and single.strip():
         keys.insert(0, single)

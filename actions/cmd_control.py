@@ -220,8 +220,17 @@ def cmd_control(
         player.write_log(f"[CMD] {command[:60]}")
 
     if any(x in command.lower() for x in ["notepad", "explorer", "start "]):
-        subprocess.Popen(command, shell=True)
-        return f"Opened: {command}"
+        # Parse into explicit args to avoid shell=True injection. `start` is a
+        # cmd builtin so it still needs cmd /c, but we pass it as a list and
+        # reject shell metacharacters in the command string.
+        if re.search(r'[&|<>^()%;!]', command):
+            return "Blocked for safety: command contains shell metacharacters."
+        try:
+            subprocess.Popen(["cmd", "/c", command],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return f"Opened: {command}"
+        except Exception as e:
+            return f"Could not open: {e}"
 
     if visible:
         _run_visible(command)

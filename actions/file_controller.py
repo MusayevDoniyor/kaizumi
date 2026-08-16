@@ -615,10 +615,16 @@ def _zip_path(source: Path, target: str) -> str:
 def _unzip_path(archive: str, target: str) -> str:
     try:
         target_path = Path(target)
+        target_path = target_path.resolve()
         target_path.mkdir(parents=True, exist_ok=True)
         count = 0
         with zipfile.ZipFile(archive) as zf:
             for member in zf.infolist():
+                # Zip-slip guard: reject members that would escape the target.
+                dest = (target_path / member.filename).resolve()
+                if not (dest == target_path or target_path in dest.parents):
+                    return (f"Unzip blocked: archive member '{member.filename}' "
+                            f"would escape the target folder.")
                 zf.extract(member, target_path)
                 count += 1
         return f"Extracted {count} item(s) → {target_path}"

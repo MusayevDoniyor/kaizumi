@@ -121,12 +121,21 @@
     <h1>Kaizumi</h1>
     <div class="sub">KAIZUMI — phone voice bridge</div>
 
-    <div class="card">
-      <div id="status">
-        <span class="dot off" id="dot"></span>Disconnected. Tap
-        <b>Connect</b> and allow mic.
-      </div>
-      <div id="level"><div id="bar"></div></div>
+<div class="card">
+        <div id="status">
+          <span class="dot off" id="dot"></span>Disconnected. Tap
+          <b>Connect</b> and allow mic.
+        </div>
+        <div class="row">
+          <input
+            type="text"
+            id="tokenIn"
+            placeholder="Access token (shown in the PC window on first start)"
+            autocomplete="off"
+            style="flex: 4"
+          />
+        </div>
+        <div id="level"><div id="bar"></div></div>
       <div class="row">
         <button id="go">Connect</button>
         <button id="stop" disabled>Disconnect</button>
@@ -282,17 +291,29 @@
       }
 
       function openSocket() {
-        ws = new WebSocket(WS_URL);
+        let url = WS_URL;
+        const tok = $id("tokenIn").value.trim();
+        if (tok) {
+          url += (url.indexOf("?") === -1 ? "?" : "&") + "token=" + encodeURIComponent(tok);
+        }
+        let authorized = false;
+        ws = new WebSocket(url);
         ws.binaryType = "arraybuffer";
 
-        ws.onopen = () =>
+        ws.onopen = () => {
+          authorized = true;
           setStatus(
             "<span class='dot on' style='margin-right:6px'></span>Connected to Kaizumi. Start talking!",
             true,
           );
+        };
         ws.onclose = () => {
+          const wasConnected = connected;
+          const wasAuth = authorized;
           ws = null;
-          if (connected) teardown("Disconnected.");
+          if (wasConnected) {
+            teardown(wasAuth ? "Disconnected." : "⛔ Connection rejected — check the access token.");
+          }
         };
         ws.onerror = (e) => setStatus("Connection error.", false);
 

@@ -17,6 +17,8 @@
 # Binary frames are always PCM int16 audio (bidirectional).
 
 import json
+import os
+import secrets
 import threading
 import uuid
 from pathlib import Path
@@ -25,6 +27,34 @@ REMOTE_HTML_PATH = Path(__file__).resolve().parent / "remote" / "interface.html"
 REMOTE_HTML      = REMOTE_HTML_PATH.read_text(encoding="utf-8")
 
 DEFAULT_PORT = 8765
+TOKEN_FILE   = Path(__file__).resolve().parent / "config" / "bridge_token.txt"
+
+
+def get_bridge_token() -> str:
+    """Return the persistent bridge auth token, generating it on first use.
+
+    The token lives in config/bridge_token.txt (gitignored). Without it the
+    WebSocket server refuses connections, so a phone can never control the PC
+    just by finding the tunnel URL.
+    """
+    try:
+        if TOKEN_FILE.exists():
+            tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if len(tok) >= 16:
+                return tok
+        env_tok = os.environ.get("KAIZUMI_BRIDGE_TOKEN", "").strip()
+        if env_tok and len(env_tok) >= 16:
+            return env_tok
+        tok = secrets.token_urlsafe(32)
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TOKEN_FILE.write_text(tok, encoding="utf-8")
+        print(f"[Bridge] 🔑 New remote-access token generated — "
+              f"save it: {tok}")
+        return tok
+    except Exception as e:
+        print(f"[Bridge] ⚠️ Bridge token error: {e}")
+        # Degrade gracefully: refuse connections rather than open access.
+        return ""
 
 # Phone request/response: pending PC->phone calls resolved by phone replies.
 _PENDING_LOCK = threading.Lock()
@@ -189,6 +219,9 @@ async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
     out_queue (asyncio.Queue of audio media dicts), session.
     """
     from websockets.asyncio.server import serve
+    import hmac
+
+    token = get_bridge_token()
 
     async def _process_request(connection, request):
         path = request.path
@@ -196,7 +229,14 @@ async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
             return connection.respond(200, REMOTE_HTML)
         if path in ("/favicon.ico",):
             return connection.respond(404, "not found")
-        return None  # allow WebSocket upgrade (any path, e.g. /ws)
+        # WebSocket upgrade (e.g. /ws?token=...) — require the auth token.
+        if token:
+            supplied = (path.split("?", 1)[1] if "?" in path else "").strip()
+            if not supplied or not hmac.compare_digest(supplied, token):
+                print(f"[Bridge] ⛔ Unauthorized connection attempt rejected "
+                      f"({connection.remote_address[0]})")
+                return connection.respond(401, "unauthorized: missing or wrong token")
+        return None  # allow WebSocket upgrade
 
     # Phone-mic wake word engine (only listens while a phone is connected).
     phone_wake_lock = threading.Lock()

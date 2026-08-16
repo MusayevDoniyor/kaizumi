@@ -9,6 +9,7 @@ Düzeltmeler:
 """
 
 import json
+import re
 from datetime import datetime
 from threading import Lock
 from pathlib import Path
@@ -25,6 +26,15 @@ BASE_DIR         = get_base_dir()
 MEMORY_PATH      = BASE_DIR / "memory" / "long_term.json"
 _lock            = Lock()
 MAX_VALUE_LENGTH = 400
+
+# Values that look like secrets are never stored — passwords, API keys,
+# bearer tokens, credit-card-ish numbers, etc.
+_SECRET_RE = re.compile(
+    r"(?i)(api[_-]?key|secret|password|passwd|bearer|authorization|"
+    r"client[_-]?secret|access[_-]?token|refresh[_-]?token|"
+    r"AIza[0-9A-Za-z_-]{20,}|sk-[0-9A-Za-z]{16,}|"
+    r"xox[baprs]-[0-9A-Za-z-]{10,}|ghp_[0-9A-Za-z]{20,})"
+)
 
 
 def _empty_memory() -> dict:
@@ -93,6 +103,9 @@ def _recursive_update(target: dict, updates: dict) -> bool:
                 new_val = _truncate_value(str(value["value"]))
             else:
                 new_val = _truncate_value(str(value))
+
+            if _SECRET_RE.search(str(key)) or _SECRET_RE.search(str(value)):
+                continue
 
             entry    = {"value": new_val, "updated": datetime.now().strftime("%Y-%m-%d")}
             existing = target.get(key, {})
@@ -311,6 +324,8 @@ def remember(key: str, value: str, category: str = "notes") -> str:
     valid = {"identity", "preferences", "projects", "relationships", "wishes", "notes"}
     if category not in valid:
         category = "notes"
+    if _SECRET_RE.search(key) or _SECRET_RE.search(str(value)):
+        return "I can't store that — it looks like a secret (password or key)."
     update_memory({category: {key: {"value": value}}})
     return f"Remembered: {category}/{key} = {value}"
 
@@ -358,3 +373,30 @@ def search_memory(query: str, category: str = "") -> str:
 
 # Alias — eski import'larla uyumluluk için
 forget_memory = forget
+
+
+def clear_memory(category: str = "") -> str:
+    """Clear all long-term memory, or just one category.
+    Returns a short confirmation string."""
+    memory = load_memory()
+    cat = category.strip().lower()
+    if cat:
+        if cat in memory:
+            memory[cat] = {}
+            save_memory(memory)
+            return f"Cleared '{cat}' memory."
+        return f"Category '{cat}' not found. Categories: " + ", ".join(memory.keys())
+    save_memory(_empty_memory())
+    return "All memory cleared."
+
+
+def memory_stats() -> str:
+    """Short summary of how much is stored, per category."""
+    memory = load_memory()
+    parts = []
+    for cat, entries in memory.items():
+        if isinstance(entries, dict) and entries:
+            parts.append(f"{cat}: {len(entries)}")
+    if not parts:
+        return "No stored memories yet."
+    return "Stored memory — " + ", ".join(parts) + "."
