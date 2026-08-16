@@ -95,9 +95,13 @@ def _preview(code: str, lines: int = 10) -> str:
 
 
 def _has_error(output: str) -> bool:
-    error_signals = ["error", "exception", "traceback", "syntaxerror",
-                     "nameerror", "typeerror", "stderr", "failed", "crash"]
-    return any(s in output.lower() for s in error_signals)
+    error_signals = [
+        r"\btraceback\b", r"\bsyntaxerror\b", r"\bnameerror\b",
+        r"\btypeerror\b", r"\bvalueerror\b", r"\bkeyerror\b",
+        r"\bimporterror\b", r"\bfilenotfounderror\b", r"\bcrash\b",
+        r"\bfailed\b", r"\berror:\b", r"\bexception\b", r"\bassert\b",
+    ]
+    return any(re.search(p, output, re.IGNORECASE) for p in error_signals)
 
 
 def _take_screenshot() -> Path | None:
@@ -548,7 +552,10 @@ def code_helper(
     file_path   = p.get("file_path", "").strip()
     code        = p.get("code", "").strip()
     args        = p.get("args", [])
-    timeout     = int(p.get("timeout", 30))
+    try:
+        timeout = int(p.get("timeout", 30))
+    except (TypeError, ValueError):
+        timeout = 30
 
     if action == "auto":
         action = _detect_intent(description, file_path, code)

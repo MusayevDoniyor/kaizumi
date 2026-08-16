@@ -1,4 +1,5 @@
-﻿import subprocess
+﻿import shlex
+import subprocess
 import sys
 import json
 import re
@@ -28,6 +29,20 @@ def _get_model(model_name: str):
     import google.generativeai as genai
     genai.configure(api_key=_get_api_key())
     return genai.GenerativeModel(model_name)
+
+
+def _safe_project_path(project_dir: Path, rel_path: str) -> Path | None:
+    """Resolve a project-relative path and refuse any escape (.., absolute,
+    symlink) outside project_dir."""
+    try:
+        project_root = project_dir.resolve()
+        full = (project_root / rel_path).resolve()
+        if full == project_root or project_root in full.parents:
+            return full
+    except Exception:
+        pass
+    print(f"[DevAgent] ⛔ Blocked path escape: {rel_path}")
+    return None
 
 
 def _strip_fences(text: str) -> str:
@@ -217,7 +232,9 @@ Code for {file_path}:"""
         response = model.generate_content(prompt)
         code = _strip_fences(response.text)
 
-        full_path = project_dir / file_path
+        full_path = _safe_project_path(project_dir, file_path)
+        if full_path is None:
+            return None
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(code, encoding="utf-8")
 
@@ -288,9 +305,12 @@ def _open_vscode(project_dir: Path) -> bool:
 def _run_project(run_command: str, project_dir: Path, timeout: int = 30) -> str:
     print(f"[DevAgent] 🚀 Running: {run_command}")
     try:
-        parts = run_command.split()
-        if parts[0].lower() == "python":
-            parts[0] = sys.executable
+        parts = shlex.split(run_command)
+        if not parts:
+            return "Empty run command."
+        if parts[0].lower() not in ("python", "py"):
+            return ("Only `python <script>` run commands are allowed, sir.")
+        parts[0] = sys.executable
 
         result = subprocess.run(
             parts,
@@ -415,7 +435,9 @@ Fixed code for {fix_path}:"""
             response = model.generate_content(prompt)
             fixed = _strip_fences(response.text)
 
-            full_path = project_dir / fix_path
+            full_path = _safe_project_path(project_dir, fix_path)
+            if full_path is None:
+                continue
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(fixed, encoding="utf-8")
 

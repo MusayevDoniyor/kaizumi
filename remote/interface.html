@@ -180,7 +180,7 @@
       const WS_URL = WS_PROTO + location.host + "/ws";
 
       function setStatus(text, ok) {
-        statusEl.innerHTML = text;
+        statusEl.textContent = text;
         dot.className = "dot " + (ok ? "on" : "off");
       }
       function setBar(level) {

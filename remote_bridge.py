@@ -16,12 +16,14 @@
 #   {type:"vision",     answer:"..."}                        — reply to a vision request
 # Binary frames are always PCM int16 audio (bidirectional).
 
+import asyncio
 import json
 import os
 import secrets
 import threading
 import uuid
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 REMOTE_HTML_PATH = Path(__file__).resolve().parent / "remote" / "interface.html"
 REMOTE_HTML      = REMOTE_HTML_PATH.read_text(encoding="utf-8")
@@ -59,10 +61,12 @@ def get_bridge_token() -> str:
 # Phone request/response: pending PC->phone calls resolved by phone replies.
 _PENDING_LOCK = threading.Lock()
 _PENDING      = {}   # req_id -> (threading.Event, dict holder)
+_CLIENTS_LOCK = threading.Lock()
 
 
 def phone_connected(kaizumi) -> bool:
-    return bool(getattr(kaizumi, "remote_clients", None))
+    with _CLIENTS_LOCK:
+        return bool(getattr(kaizumi, "remote_clients", None))
 
 
 def _request_phone(kaizumi, payload: dict, timeout: float = 12.0) -> dict | None:
@@ -77,7 +81,13 @@ def _request_phone(kaizumi, payload: dict, timeout: float = 12.0) -> dict | None
     loop = getattr(kaizumi, "_loop", None)
     if not loop:
         return None
-    ws = next(iter(clients))
+    with _CLIENTS_LOCK:
+        if not clients:
+            return None
+        try:
+            ws = next(iter(clients))
+        except StopIteration:
+            return None
     req_id = uuid.uuid4().hex[:12]
     holder = {}
     event = threading.Event()
@@ -97,7 +107,6 @@ def _request_phone(kaizumi, payload: dict, timeout: float = 12.0) -> dict | None
 
 
 def asyncio_send(loop, ws, payload: dict) -> bool:
-    import asyncio
     try:
         fut = asyncio.run_coroutine_threadsafe(
             ws.send(json.dumps(payload, ensure_ascii=False)), loop
@@ -223,6 +232,15 @@ async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
 
     token = get_bridge_token()
 
+    # Fail closed: without a valid token nobody gets in (HTTP or WS).
+    if not token or len(token) < 16:
+        async def _deny_all(connection, request):
+            print("[Bridge] ⛔ No bridge token configured — refusing all connections")
+            return connection.respond(503, "bridge token not configured")
+        server = await serve(_deny_all, "0.0.0.0", port)
+        print("[Bridge] ⚠️ Phone bridge disabled — no valid access token available.")
+        return server
+
     async def _process_request(connection, request):
         path = request.path
         if path in ("/", "/remote.html", "/index.html"):
@@ -230,12 +248,12 @@ async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
         if path in ("/favicon.ico",):
             return connection.respond(404, "not found")
         # WebSocket upgrade (e.g. /ws?token=...) — require the auth token.
-        if token:
-            supplied = (path.split("?", 1)[1] if "?" in path else "").strip()
-            if not supplied or not hmac.compare_digest(supplied, token):
-                print(f"[Bridge] ⛔ Unauthorized connection attempt rejected "
-                      f"({connection.remote_address[0]})")
-                return connection.respond(401, "unauthorized: missing or wrong token")
+        query = parse_qs(urlparse(path).query)
+        supplied = (query.get("token") or [""])[0].strip()
+        if not supplied or not hmac.compare_digest(supplied, token):
+            print(f"[Bridge] ⛔ Unauthorized connection attempt rejected "
+                  f"({connection.remote_address[0]})")
+            return connection.respond(401, "unauthorized: missing or wrong token")
         return None  # allow WebSocket upgrade
 
     # Phone-mic wake word engine (only listens while a phone is connected).
@@ -246,14 +264,20 @@ async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
         with phone_wake_lock:
             phone_wake["ws"] = ws
             if phone_wake["svc"] is None:
-                phone_wake["svc"] = _phone_wake_service(lambda: _on_phone_wake(ws))
+                phone_wake["svc"] = _phone_wake_service(_on_phone_wake)
 
     def _disable_phone_wake():
         with phone_wake_lock:
             phone_wake["ws"] = None
 
-    def _on_phone_wake(ws):
+    def _on_phone_wake(_ignored_ws=None):
+        # Read the current phone socket at call time, not the one that was
+        # connected when the engine started (handles reconnects).
+        with phone_wake_lock:
+            ws = phone_wake["ws"]
         try:
+            if ws is None:
+                return
             payload = {"type": "wake"}
             asyncio_run = getattr(kaizumi, "_safely_send", None)
             if asyncio_run:
@@ -288,13 +312,15 @@ async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
             print(f"[Bridge] 📷 Vision request ({len(image_bytes)} bytes)")
             try:
                 from actions.screen_processor import _analyze_image_text
-                answer = _analyze_image_text(image_bytes, "image/jpeg", question)
+                answer = await asyncio.to_thread(
+                    _analyze_image_text, image_bytes, "image/jpeg", question)
             except Exception as e:
                 answer = f"Vision error: {e}"
             await ws.send(json.dumps({"type": "vision", "answer": answer}, ensure_ascii=False))
 
     async def handler(ws):
-        kaizumi.remote_clients.add(ws)
+        with _CLIENTS_LOCK:
+            kaizumi.remote_clients.add(ws)
         kaizumi.ui.muted = True
         kaizumi.ui.write_log(f"SYS: 📱 Phone connected ({ws.remote_address[0]}) — mic muted, remote on.")
         print(f"[Bridge] 🎧 Phone connected: {ws.remote_address[0]}")
@@ -310,7 +336,9 @@ async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
                     if phone_wake_svc is not None:
                         try:
                             import numpy as np
-                            phone_wake_svc._feed(np.frombuffer(msg, dtype=np.int16).copy())
+                            await asyncio.to_thread(
+                                phone_wake_svc._feed,
+                                np.frombuffer(msg, dtype=np.int16).copy())
                         except Exception as e:
                             print(f"[Bridge] ⚠️ phone wake feed: {e}")
                 elif isinstance(msg, str):
@@ -323,7 +351,8 @@ async def start_bridge(kaizumi, port: int = DEFAULT_PORT):
         except Exception as e:
             print(f"[Bridge] ⚠️ {e}")
         finally:
-            kaizumi.remote_clients.discard(ws)
+            with _CLIENTS_LOCK:
+                kaizumi.remote_clients.discard(ws)
             _disable_phone_wake()
             _fail_all_pending("phone disconnected")
             if not kaizumi.remote_clients:

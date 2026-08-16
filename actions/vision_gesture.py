@@ -45,7 +45,7 @@ except ImportError:
 BASE_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE_DIR / "models"
 
-MODES = {"gesture", "air_mouse", "volume", "motion", "posture", "focus"}
+MODES = {"gesture", "air_mouse", "volume", "motion", "posture"}
 
 # ── Landmark indices ──────────────────────────────────────────────────────────
 HAND_INDEX_TIP  = 8
@@ -147,11 +147,10 @@ class VisionService:
         return f"Vision mode active: {mode}. Say 'stop vision' when done."
 
     def stop(self) -> str:
+        # Only flag stop; the loop thread owns the capture object and releases
+        # it on exit — releasing here races with the loop's read()/release().
         with self._lock:
             self._running = False
-            cap = self._cap
-        if cap is not None:
-            cap.release()
         return "Vision stopped, sir."
 
     @property

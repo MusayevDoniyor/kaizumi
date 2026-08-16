@@ -2041,6 +2041,17 @@ class KaizumiLive:
         loop   = asyncio.get_event_loop()
         result = "Done."
 
+        # ── Loop guard: stop identical-arg / ping-pong tool loops in live mode ──
+        blocked = self.loop_guard.check(name, args)
+        if blocked:
+            print(f"[KAIZUMI] 🛑 {name} blocked by loop guard")
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": blocked}
+            )
+
         # ── Safety gate: high-risk actions need explicit user confirmation ──
         from safety import needs_confirmation, describe, CONFIRM_MESSAGE, CONFIRM_PARAM, sanitize
         if needs_confirmation(name, args, confirm=bool(args.pop(CONFIRM_PARAM, False))):
@@ -2251,7 +2262,15 @@ class KaizumiLive:
                 result = r
 
             else:
-                result = f"Unknown tool: {name}"
+                # Fall back to the shared handler table used by the Telegram /
+                # agent path so every declared tool works in the voice session too.
+                entry = self._tool_handlers.get(name)
+                if entry is not None:
+                    handler, timeout = entry
+                    r = await loop.run_in_executor(None, lambda: handler(args))
+                    result = r or f"{name} done."
+                else:
+                    result = f"Unknown tool: {name}"
 
         except Exception as e:
             result = f"Tool '{name}' failed: {e}"
@@ -2349,8 +2368,10 @@ class KaizumiLive:
                     self.broadcast_remote({"type": "system", "text": msg})
                     if notify:
                         try:
-                            notify(parameters={"title": "Kaizumi", "message": s["message"]},
-                                   player=self.ui)
+                            await asyncio.to_thread(
+                                notify,
+                                {"title": "Kaizumi", "message": s["message"]},
+                                self.ui)
                         except Exception:
                             pass
             except Exception as e:
@@ -2377,7 +2398,10 @@ class KaizumiLive:
                     self.ui.write_log(text)
                     self.broadcast_remote({"type": "system", "text": text})
                     from actions.notifications import notify
-                    notify(parameters={"title": "PC Health", "message": text}, player=self.ui)
+                    await asyncio.to_thread(
+                        notify,
+                        {"title": "PC Health", "message": text},
+                        self.ui)
                     if self.session:
                         self.speak(text)
             except Exception as e:
@@ -2388,7 +2412,10 @@ class KaizumiLive:
                     self.ui.write_log(text)
                     self.broadcast_remote({"type": "system", "text": text})
                     from actions.notifications import notify
-                    notify(parameters={"title": "Kaizumi", "message": text}, player=self.ui)
+                    await asyncio.to_thread(
+                        notify,
+                        {"title": "Kaizumi", "message": text},
+                        self.ui)
                     if self.session:
                         self.speak(text)
             except Exception as e:
@@ -2599,7 +2626,8 @@ class KaizumiLive:
                 tg.send_photo(token, chat, result,
                               caption="📸 Hozirgi ekran, sir.")
             elif result:
-                tg.send_message(token, chat, result, reply_markup=reply_markup)
+                tg.send_message(token, chat, tg.html_escape(str(result)),
+                                reply_markup=reply_markup)
             return
         tg.send_typing(token, chat)
         placeholder = tg.send_message(token, chat, "⏳ ...") or {}
@@ -2624,10 +2652,11 @@ class KaizumiLive:
         msg_id = placeholder.get("message_id")
 
         def _edit(text: str):
+            safe = tg.html_escape(text)
             if msg_id:
-                tg.edit_message(token, chat, msg_id, text)
+                tg.edit_message(token, chat, msg_id, safe)
             else:
-                tg.send_message(token, chat, text)
+                tg.send_message(token, chat, safe)
 
         audio = await asyncio.to_thread(tg.download_file, token, file_id)
         if not audio:

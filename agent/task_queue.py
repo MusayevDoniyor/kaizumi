@@ -108,6 +108,10 @@ class TaskQueue:
 
             task.cancel_flag.set()
             task.status = TaskStatus.CANCELLED
+            try:
+                self._queue.remove(task)
+            except ValueError:
+                pass
             print(f"[TaskQueue] 🚫 Task cancelled: [{task_id}]")
             return True
 

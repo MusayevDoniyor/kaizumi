@@ -297,7 +297,10 @@ Create a REVISED plan for the remaining work only. Do not repeat completed steps
         text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
         plan     = json.loads(text)
 
-        for step in plan.get("steps", []):
+        if "steps" not in plan or not isinstance(plan["steps"], list):
+            raise ValueError("Invalid revised plan structure")
+
+        for step in plan["steps"]:
             if step.get("tool") == "generated_code":
                 step["tool"] = "web_search"
                 step["parameters"] = {"query": step.get("description", goal)[:200]}

@@ -9,6 +9,7 @@ Düzeltmeler:
 """
 
 import json
+import os
 import re
 from datetime import datetime
 from threading import Lock
@@ -29,11 +30,20 @@ MAX_VALUE_LENGTH = 400
 
 # Values that look like secrets are never stored — passwords, API keys,
 # bearer tokens, credit-card-ish numbers, etc.
-_SECRET_RE = re.compile(
+# Keys are matched broadly (token/auth/session/cookie/credential as a word);
+# values are matched only on high-signal secret shapes to avoid false
+# positives like "I booked a session with the dentist".
+_SECRET_KEY_RE = re.compile(
     r"(?i)(api[_-]?key|secret|password|passwd|bearer|authorization|"
     r"client[_-]?secret|access[_-]?token|refresh[_-]?token|"
-    r"AIza[0-9A-Za-z_-]{20,}|sk-[0-9A-Za-z]{16,}|"
-    r"xox[baprs]-[0-9A-Za-z-]{10,}|ghp_[0-9A-Za-z]{20,})"
+    r"(^|[^a-z])(token|auth|session|cookie|credential|id[_-]?token|"
+    r"app[_-]?password|client[_-]?id)([^a-z]|$))"
+)
+_SECRET_VAL_RE = re.compile(
+    r"(?i)(AIza[0-9A-Za-z_-]{20,}|sk-[0-9A-Za-z]{16,}|"
+    r"AKIA[0-9A-Z]{16}|ghp_[0-9A-Za-z]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|"
+    r"(api[_-]?key|secret|password|bearer|authorization|access[_-]?token)"
+    r"[=: ]+[^\s]{6,})"
 )
 
 
@@ -72,10 +82,12 @@ def save_memory(memory: dict) -> None:
         return
     MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
-        MEMORY_PATH.write_text(
+        tmp = MEMORY_PATH.with_suffix(MEMORY_PATH.suffix + ".tmp")
+        tmp.write_text(
             json.dumps(memory, indent=2, ensure_ascii=False),
             encoding="utf-8"
         )
+        os.replace(tmp, MEMORY_PATH)
 
 
 def _truncate_value(val: str) -> str:
@@ -104,7 +116,7 @@ def _recursive_update(target: dict, updates: dict) -> bool:
             else:
                 new_val = _truncate_value(str(value))
 
-            if _SECRET_RE.search(str(key)) or _SECRET_RE.search(str(value)):
+            if _SECRET_KEY_RE.search(str(key)) or _SECRET_VAL_RE.search(str(value)):
                 continue
 
             entry    = {"value": new_val, "updated": datetime.now().strftime("%Y-%m-%d")}
@@ -324,7 +336,7 @@ def remember(key: str, value: str, category: str = "notes") -> str:
     valid = {"identity", "preferences", "projects", "relationships", "wishes", "notes"}
     if category not in valid:
         category = "notes"
-    if _SECRET_RE.search(key) or _SECRET_RE.search(str(value)):
+    if _SECRET_KEY_RE.search(key) or _SECRET_VAL_RE.search(str(value)):
         return "I can't store that — it looks like a secret (password or key)."
     update_memory({category: {key: {"value": value}}})
     return f"Remembered: {category}/{key} = {value}"

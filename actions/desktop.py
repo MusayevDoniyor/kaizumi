@@ -43,6 +43,7 @@ BLOCKED_KEYWORDS = [
     "import os", "import subprocess",
     "__import__", "open(",
     "sys.exit", "quit()",
+    ".unlink(", "write_text", "write_bytes",
 ]
 
 
@@ -117,7 +118,6 @@ def _execute_generated_code(code: str) -> str:
             "path": os.path,
             "listdir": os.listdir,
             "getcwd": os.getcwd,
-            "environ": os.environ,
         })(),
         "__builtins__": {
             "print": print,

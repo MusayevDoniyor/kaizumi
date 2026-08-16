@@ -4,6 +4,7 @@ import subprocess
 import os
 import sys
 from datetime import datetime
+from xml.sax.saxutils import escape as xml_escape
 
 
 def reminder(
@@ -39,6 +40,11 @@ def reminder(
 
         task_name    = f"KaizumiReminder_{target_dt.strftime('%Y%m%d_%H%M')}"
         safe_message = message.replace('"', '').replace("'", "").strip()[:200]
+        xml_message  = xml_escape(safe_message)
+        py_message   = (safe_message
+                        .replace("\\", "\\\\")
+                        .replace("\n", " ").replace("\r", " ")
+                        .replace("{", "{{").replace("}", "}}"))
 
         python_exe = sys.executable
         if python_exe.lower().endswith("python.exe"):
@@ -67,14 +73,14 @@ try:
     from win10toast import ToastNotifier
     ToastNotifier().show_toast(
         "Kaizumi Reminder",
-        "{safe_message}",
+        "{py_message}",
         duration=15,
         threaded=False
     )
 except Exception:
     try:
         import subprocess
-        subprocess.run(["msg", "*", "/TIME:30", "{safe_message}"])
+        subprocess.run(["msg", "*", "/TIME:30", "{py_message}"])
     except Exception:
         pass
 
@@ -90,7 +96,7 @@ except Exception:
         xml_content = f'''<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Kaizumi Reminder: {safe_message}</Description>
+    <Description>Kaizumi Reminder: {xml_message}</Description>
   </RegistrationInfo>
   <Triggers>
     <TimeTrigger>

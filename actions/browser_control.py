@@ -13,13 +13,15 @@ def _get_default_browser_id() -> str:
     try:
         if system == "Windows":
             import winreg
-            key     = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice"
-            )
-            prog_id = winreg.QueryValueEx(key, "ProgId")[0].lower()
-            winreg.CloseKey(key)
-            return prog_id
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice"
+                ) as key:
+                    prog_id = winreg.QueryValueEx(key, "ProgId")[0].lower()
+                return prog_id
+            except Exception:
+                pass
 
         elif system == "Darwin":
             result = subprocess.run(
@@ -150,6 +152,7 @@ class _BrowserThread:
         self._incog_context = None       # Incognito/private context
         self._page          = None       # Normal page
         self._incog_page    = None       # Incognito page
+        self._incog_browser = None       # Separate incognito browser instance
         self._engine_name   = "chromium" # Bilgi için sakla
         self._exe_path      = None
         self._channel       = None
@@ -289,6 +292,7 @@ class _BrowserThread:
                     args=["--incognito", "--start-maximized"]
                 )
 
+            self._incog_browser = incog_browser
             self._incog_context = await incog_browser.new_context(
                 viewport=None,
                 user_agent=(
@@ -318,10 +322,12 @@ class _BrowserThread:
             return f"Navigation error: {e}"
 
     async def _search(self, query: str, engine: str = "google", incognito: bool = False) -> str:
+        from urllib.parse import quote_plus
+        q = quote_plus(query)
         engines = {
-            "google":     f"https://www.google.com/search?q={query.replace(' ', '+')}",
-            "bing":       f"https://www.bing.com/search?q={query.replace(' ', '+')}",
-            "duckduckgo": f"https://duckduckgo.com/?q={query.replace(' ', '+')}",
+            "google":     f"https://www.google.com/search?q={q}",
+            "bing":       f"https://www.bing.com/search?q={q}",
+            "duckduckgo": f"https://duckduckgo.com/?q={q}",
         }
         url = engines.get(engine.lower(), engines["google"])
         return await self._go_to(url, incognito=incognito)
@@ -448,6 +454,13 @@ class _BrowserThread:
                 pass
             self._incog_context = None
             self._incog_page    = None
+
+        if self._incog_browser:
+            try:
+                await self._incog_browser.close()
+            except Exception:
+                pass
+            self._incog_browser = None
 
         if self._browser:
             await self._browser.close()

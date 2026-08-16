@@ -47,6 +47,7 @@ class WakeWordService:
         self._model_file = model_file
         self._phrase     = phrase
         self._lock       = threading.Lock()
+        self._audio_buffer = []      # rolling list of np arrays (per instance)
 
     @property
     def available(self) -> bool:
@@ -97,6 +98,7 @@ class WakeWordService:
     def stop(self) -> str:
         self._running = False
         if self._thread:
+            self._thread.join(timeout=3)
             self._thread = None
         return "Wake word stopped, sir."
 
@@ -136,7 +138,6 @@ class WakeWordService:
             print(f"[WakeWord] ❌ {e}")
 
     # stream buffer fed per block
-    _audio_buffer = []   # rolling list of np arrays
 
     def _audio_callback(self, indata, frames, time_info, status):
         if self._running:

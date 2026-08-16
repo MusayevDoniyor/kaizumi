@@ -500,10 +500,11 @@ def _win_wifi_interface() -> str:
 
 def _win_wifi_state(iface: str) -> str:
     try:
+        safe = iface.replace("'", "''")
         out = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
              "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
-             f"(Get-NetAdapter -Name '{iface}').Status"],
+             f"(Get-NetAdapter -Name '{safe}').Status"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
         )
         status = out.stdout.strip().lower()
@@ -527,7 +528,7 @@ def toggle_wifi():
         subprocess.run(["networksetup", "-setairportpower", "en0", "toggle"])
         return
     else:
-        subprocess.run(["nmcli", "radio", "wifi"])
+        subprocess.run(["nmcli", "radio", "wifi", "toggle"])
         return
     pyautogui.hotkey("win", "a")
     time.sleep(0.3)
@@ -540,13 +541,14 @@ def _win_wifi_set(enable: bool) -> str:
     if (enable and state == "enabled") or (not enable and state == "disabled"):
         return f"Wi-Fi is already {'enabled' if enable else 'disabled'}."
     try:
+        safe = iface.replace("'", "''")
         subprocess.run(
             ["powershell", "-NoProfile", "-Command",
              f"[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
-             f"Disable-NetAdapter -Name '{iface}' -Confirm:$false"
+             f"Disable-NetAdapter -Name '{safe}' -Confirm:$false"
              if not enable else
              f"[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
-             f"Enable-NetAdapter -Name '{iface}' -Confirm:$false"],
+             f"Enable-NetAdapter -Name '{safe}' -Confirm:$false"],
             capture_output=True, timeout=20
         )
         return f"Wi-Fi turned {'on' if enable else 'off'}."

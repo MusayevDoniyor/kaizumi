@@ -281,7 +281,7 @@ class _LiveSession:
         except Exception as e:
             print(f"[ScreenProcess] ⚠️ Recv error: {e}")
             transcript_buf = []
-            await asyncio.sleep(0.3)
+            raise
 
     async def _play_loop(self):
         stream = sd.RawOutputStream(

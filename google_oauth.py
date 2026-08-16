@@ -175,14 +175,14 @@ def auth_browser_nopkce(port: int = 8787, timeout_seconds: int = 300) -> dict:
     flow is rejected. Opens the default browser; token is saved on success.
     """
     from urllib.parse import urlencode, parse_qs, urlparse
-    import http.server, threading, webbrowser
+    import http.server, threading, webbrowser, secrets
 
     cid, sec = client_ids()
     if not cid or not sec:
         return {"ok": False, "error": "google_client_id/secret not configured."}
 
     redirect = f"http://localhost:{port}/"
-    state = "kaizumi"
+    state = secrets.token_urlsafe(16)
     auth_url = (AUTH_URI + "?" + urlencode({
         "client_id":      cid,
         "redirect_uri":   redirect,
@@ -193,7 +193,7 @@ def auth_browser_nopkce(port: int = 8787, timeout_seconds: int = 300) -> dict:
         "state":          state,
     }))
 
-    result = {"code": None}
+    result = {"code": None, "state": state}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -201,7 +201,7 @@ def auth_browser_nopkce(port: int = 8787, timeout_seconds: int = 300) -> dict:
 
         def do_GET(self):
             qs = parse_qs(urlparse(self.path).query)
-            if qs.get("state") == [state] and qs.get("code"):
+            if qs.get("state") == [result["state"]] and qs.get("code"):
                 result["code"] = qs["code"][0]
                 body = _result_page(ok=True)
             else:

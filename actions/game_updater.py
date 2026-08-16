@@ -18,9 +18,8 @@ def _find_steam_path() -> Path | None:
     ]
     for hive, key_path in registry_keys:
         try:
-            key = winreg.OpenKey(hive, key_path)
-            val, _ = winreg.QueryValueEx(key, "InstallPath")
-            winreg.CloseKey(key)
+            with winreg.OpenKey(hive, key_path) as key:
+                val, _ = winreg.QueryValueEx(key, "InstallPath")
             p = Path(val)
             if p.exists() and (p / "steam.exe").exists():
                 return p
@@ -44,9 +43,8 @@ def _find_epic_path() -> Path | None:
     ]
     for hive, key_path in registry_keys:
         try:
-            key = winreg.OpenKey(hive, key_path)
-            val, _ = winreg.QueryValueEx(key, "AppDataPath")
-            winreg.CloseKey(key)
+            with winreg.OpenKey(hive, key_path) as key:
+                val, _ = winreg.QueryValueEx(key, "AppDataPath")
             exe = Path(val) / "Binaries" / "Win64" / "EpicGamesLauncher.exe"
             if exe.exists():
                 return exe.parent
@@ -720,8 +718,11 @@ def game_updater(parameters: dict, player=None, speak=None) -> str:
     platform  = p.get("platform",  "both").lower().strip()
     game_name = (p.get("game_name") or "").strip() or None
     app_id    = (p.get("app_id")    or "").strip() or None
-    hour      = int(p.get("hour",   3))
-    minute    = int(p.get("minute", 0))
+    try:
+        hour   = int(p.get("hour",   3))
+        minute = int(p.get("minute", 0))
+    except (TypeError, ValueError):
+        return "Invalid schedule time — please provide numeric hour and minute, sir."
     shutdown  = str(p.get("shutdown_when_done", "false")).lower() == "true"
 
     results = []

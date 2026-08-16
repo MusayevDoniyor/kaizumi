@@ -172,6 +172,16 @@ def _translate_to_goal_language(content: str, goal: str) -> str:
         return content
 
 def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
+    # Safety gate: the background agent runs without interactive confirmation,
+    # so HIGH-risk tools are refused here. (Main-session tools that need
+    # confirmation go through main.py's confirmation gate instead.)
+    try:
+        from safety import needs_confirmation
+        if needs_confirmation(tool, parameters, confirm=False):
+            return (f"Blocked for safety: {tool} requires your explicit "
+                    f"confirmation, which can't be given in background mode, sir.")
+    except Exception:
+        pass
 
     if tool == "open_app":
         from actions.open_app import open_app
@@ -281,6 +291,26 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
     else:
         raise RuntimeError(f"Unknown tool '{tool}'.")
 
+
+TOOL_TIMEOUT_S = 180  # hard cap per tool call; a hung tool must not starve the queue
+
+
+def _call_tool_with_timeout(tool: str, parameters: dict, speak: Callable | None,
+                            cancel_flag: threading.Event | None = None) -> str:
+    """Run _call_tool with a hard timeout so a hung tool can't block the queue."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_call_tool, tool, parameters, speak)
+        try:
+            return fut.result(timeout=TOOL_TIMEOUT_S)
+        except FutureTimeout:
+            fut.cancel()
+            return (f"Tool '{tool}' timed out after {TOOL_TIMEOUT_S}s and was "
+                    f"stopped to protect the task queue.")
+        except Exception as e:
+            raise
+
 class AgentExecutor:
 
     MAX_REPLAN_ATTEMPTS = 2
@@ -331,7 +361,7 @@ class AgentExecutor:
                     if cancel_flag and cancel_flag.is_set():
                         break
                     try:
-                        result = _call_tool(tool, params, speak)
+                        result = _call_tool_with_timeout(tool, params, speak, cancel_flag)
                         step_results[step_num] = result 
                         completed_steps.append(step)
                         print(f"[Executor] ✅ Step {step_num} done: {str(result)[:100]}")
@@ -371,10 +401,11 @@ class AgentExecutor:
                                 try:
                                     fixed_step = generate_fix(step, error_msg, fix_suggestion)
                                     if speak: speak("Trying an alternative approach, sir.")
-                                    res = _call_tool(
+                                    res = _call_tool_with_timeout(
                                         fixed_step["tool"],
                                         fixed_step["parameters"],
-                                        speak
+                                        speak,
+                                        cancel_flag,
                                     )
                                     step_results[step_num] = res
                                     completed_steps.append(step)

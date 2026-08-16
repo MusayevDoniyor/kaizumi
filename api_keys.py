@@ -48,7 +48,9 @@ def _load_state() -> dict:
 
 def _save_state() -> None:
     try:
-        STATE_PATH.write_text(json.dumps(_state, ensure_ascii=False), encoding="utf-8")
+        tmp = STATE_PATH.with_suffix(STATE_PATH.suffix + ".tmp")
+        tmp.write_text(json.dumps(_state, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, STATE_PATH)
     except Exception:
         pass
 
@@ -92,25 +94,26 @@ def mark_exhausted(key: str) -> None:
 def next_key() -> str:
     """Return the next available key, preferring ones not in cooldown."""
     global _pos
-    keys = get_all_keys()
-    if not keys:
-        raise KeyError("gemini_api_key not configured in config/api_keys.json")
-    st = _load_state()
-    now = time.time()
-    n   = len(keys)
-    pos = _pos % n
-    for i in range(n):
-        k = keys[(pos + i) % n]
-        entry = st.get(_hash(k))
-        if not entry or entry.get("until", 0) <= now:
-            _pos = (pos + i + 1) % n
-            return k
-    # All keys in cooldown — force a retry on the next one (may have recovered).
-    k = keys[pos]
-    _pos = (pos + 1) % n
-    st.pop(_hash(k), None)
-    _save_state()
-    return k
+    with _lock:
+        keys = get_all_keys()
+        if not keys:
+            raise KeyError("gemini_api_key not configured in config/api_keys.json")
+        st = _load_state()
+        now = time.time()
+        n   = len(keys)
+        pos = _pos % n
+        for i in range(n):
+            k = keys[(pos + i) % n]
+            entry = st.get(_hash(k))
+            if not entry or entry.get("until", 0) <= now:
+                _pos = (pos + i + 1) % n
+                return k
+        # All keys in cooldown — force a retry on the next one (may have recovered).
+        k = keys[pos]
+        _pos = (pos + 1) % n
+        st.pop(_hash(k), None)
+        _save_state()
+        return k
 
 
 def _is_quota_error(e) -> bool:
@@ -175,6 +178,8 @@ async def aio_generate(model, contents, config=None, api_version=None):
                 last_err = e
                 continue
             raise
+    if last_err is None:
+        raise KeyError("No Gemini API keys configured — add one in config/api_keys.json")
     raise last_err
 
 
@@ -199,4 +204,6 @@ def generate_with_retry(model, contents, config=None, api_version=None):
                 last_err = e
                 continue
             raise
+    if last_err is None:
+        raise KeyError("No Gemini API keys configured — add one in config/api_keys.json")
     raise last_err

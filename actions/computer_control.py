@@ -416,6 +416,21 @@ def _analyze_screen_for_element(description: str) -> tuple[int, int] | None:
 
     return None
 
+_SENSITIVE_PARAM_KEYS = {"text", "value", "password", "content", "message", "data"}
+
+
+def _safe_params(parameters: dict) -> dict:
+    """Return params with potentially sensitive values masked for console logs."""
+    if not isinstance(parameters, dict):
+        return {}
+    out = {}
+    for k, v in parameters.items():
+        if isinstance(v, str) and k.lower() in _SENSITIVE_PARAM_KEYS and len(v) > 3:
+            out[k] = v[:2] + "…"
+        else:
+            out[k] = v
+    return out
+
 def computer_control(
     parameters:     dict,
     response=None,
@@ -456,7 +471,7 @@ def computer_control(
     if player:
         player.write_log(f"[Computer] {action}")
 
-    print(f"[ComputerControl] ▶️ Action: {action}  Params: {parameters}")
+    print(f"[ComputerControl] ▶️ Action: {action}  Params: {_safe_params(parameters)}")
 
     try:
         if action == "type":
@@ -573,7 +588,7 @@ def computer_control(
         elif action == "random_data":
             data_type = parameters.get("type", "name")
             result    = generate_random_data(data_type)
-            print(f"[ComputerControl] 🎲 Random {data_type}: {result}")
+            print(f"[ComputerControl] 🎲 Random {data_type} generated")
             return result
 
         elif action == "user_data":
@@ -582,7 +597,7 @@ def computer_control(
             value   = profile.get(field, "")
             if not value:
                 value = generate_random_data(field)
-                print(f"[ComputerControl] ⚠️ No user {field} in memory, using random: {value}")
+                print(f"[ComputerControl] ⚠️ No user {field} in memory, generated random")
             return value
 
         else:

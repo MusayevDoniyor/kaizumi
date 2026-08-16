@@ -172,8 +172,9 @@ def _run_visible(command: str) -> None:
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
         elif platform == "macos":
+            escaped = command.replace("\\", "\\\\").replace('"', '\\"')
             subprocess.Popen(["osascript", "-e",
-                f'tell application "Terminal" to do script "{command}"'])
+                f'tell application "Terminal" to do script "{escaped}"'])
         else:
             for term in ["gnome-terminal", "xterm", "konsole"]:
                 try:
@@ -198,9 +199,11 @@ def cmd_control(
     if not task and not command:
         return "Please describe what you want to do, sir."
 
+    hardcoded = False
     if not command:
         command = _find_hardcoded(task)
         if command:
+            hardcoded = True
             print(f"[CMD] ⚡ Hardcoded: {command[:80]}")
         else:
             # Safety-first default: do not generate arbitrary shell commands from the model.
@@ -216,6 +219,12 @@ def cmd_control(
     if not safe:
         return f"Blocked for safety: {reason}"
 
+    # Model-supplied explicit commands must not contain shell chaining / redirect
+    # metacharacters or embedded newlines (cmd /c and cmd /k both interpret them).
+    if not hardcoded:
+        if re.search(r'[&|<>^()%;!\r\n]', command):
+            return "Blocked for safety: command contains shell metacharacters."
+
     if player:
         player.write_log(f"[CMD] {command[:60]}")
 
@@ -223,7 +232,7 @@ def cmd_control(
         # Parse into explicit args to avoid shell=True injection. `start` is a
         # cmd builtin so it still needs cmd /c, but we pass it as a list and
         # reject shell metacharacters in the command string.
-        if re.search(r'[&|<>^()%;!]', command):
+        if re.search(r'[&|<>^()%;!\r\n]', command):
             return "Blocked for safety: command contains shell metacharacters."
         try:
             subprocess.Popen(["cmd", "/c", command],
