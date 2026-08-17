@@ -310,6 +310,11 @@ def _get_api_key() -> str:
     return next_key()
 
 
+def _looks_like_quota(err: str) -> bool:
+    e = (err or "").lower()
+    return any(tok in e for tok in ("resource_exhausted", "429", "quota", "rate limit"))
+
+
 def _load_system_prompt() -> str:
     try:
         return PROMPT_PATH.read_text(encoding="utf-8")
@@ -1759,6 +1764,31 @@ class KaizumiLive:
             import google_oauth
             return google_oauth.status()
 
+        def _office_pptx(args):
+            from actions.office_builder import create_presentation as _make_pptx
+            return _make_pptx(
+                title=args.get("title", ""),
+                slides=args.get("slides") or [],
+                filename=args.get("filename"),
+            )
+
+        def _office_xlsx(args):
+            from actions.office_builder import create_spreadsheet as _make_xlsx
+            return _make_xlsx(
+                filename=args.get("filename", "spreadsheet"),
+                headers=args.get("headers") or [],
+                rows=args.get("rows") or [],
+                sheet_name=args.get("sheet_name", "Sheet1"),
+            )
+
+        def _smart_home(args):
+            from actions.smart_home import smart_home_control as _sh_control
+            return _sh_control(
+                action=args.get("action", "status"),
+                device=args.get("device"),
+                value=args.get("value"),
+            )
+
         return {
             "open_app":          (lambda a: open_app(parameters=a, response=None, player=ui), 60),
             "weather_report":    (lambda a: weather_action(parameters=a, player=ui), 60),
@@ -1809,6 +1839,10 @@ class KaizumiLive:
             "google_auth_status": (_google_auth_status, 15),
             "calendar":          (lambda a: calendar_action(parameters=a, response=None, player=ui), 60),
             "drive":             (lambda a: drive_action(parameters=a, response=None, player=ui), 60),
+            "schedule":          (lambda a: self._schedule(a), 30),
+            "create_presentation": (_office_pptx, 60),
+            "create_spreadsheet":  (_office_xlsx, 60),
+            "smart_home_control":  (_smart_home, 30),
         }
 
     async def _dispatch_tool(self, name: str, args: dict) -> ToolResult:
@@ -1972,7 +2006,6 @@ class KaizumiLive:
                 response={"result": f"Mood set to: {mood}."}
             )
 
-        loop   = asyncio.get_event_loop()
         result = "Done."
 
         # ── Loop guard: stop identical-arg / ping-pong tool loops in live mode ──
@@ -2004,192 +2037,27 @@ class KaizumiLive:
                                    str(v) for v in sanitize(name, args).values()
                                )[:120]})
         try:
-            if name == "open_app":
-                r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
-                result = r or f"Opened {args.get('app_name')}."
-
-            elif name == "weather_report":
-                r = await loop.run_in_executor(None, lambda: weather_action(parameters=args, player=self.ui))
-                result = r or "Weather delivered."
-
-            elif name == "browser_control":
-                r = await loop.run_in_executor(None, lambda: browser_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "file_controller":
-                r = await loop.run_in_executor(None, lambda: file_controller(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "send_message":
-                r = await loop.run_in_executor(None, lambda: send_message(parameters=args, response=None, player=self.ui, session_memory=None))
-                result = r or f"Message sent to {args.get('receiver')}."
-
-            elif name == "reminder":
-                r = await loop.run_in_executor(None, lambda: reminder(parameters=args, response=None, player=self.ui))
-                result = r or "Reminder set."
-
-            elif name == "youtube_video":
-                r = await loop.run_in_executor(None, lambda: youtube_video(parameters=args, response=None, player=self.ui))
-                result = r or "Done."
-
-            elif name == "screen_process":
-                r = await loop.run_in_executor(None, lambda: screen_process(parameters=args, player=self.ui))
-                result = r or "Vision analysis completed."
-
-            elif name == "computer_settings":
-                r = await loop.run_in_executor(None, lambda: computer_settings(parameters=args, response=None, player=self.ui))
-                result = r or "Done."
-
-            elif name == "cmd_control":
-                r = await loop.run_in_executor(None, lambda: cmd_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "desktop_control":
-                r = await loop.run_in_executor(None, lambda: desktop_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "code_helper":
-                r = await loop.run_in_executor(None, lambda: code_helper(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "dev_agent":
-                r = await loop.run_in_executor(None, lambda: dev_agent(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "agent_task":
-                from agent.task_queue import get_queue, TaskPriority
-                priority_map = {"low": TaskPriority.LOW, "normal": TaskPriority.NORMAL, "high": TaskPriority.HIGH}
-                priority = priority_map.get(args.get("priority", "normal").lower(), TaskPriority.NORMAL)
-                task_id  = get_queue().submit(goal=args.get("goal", ""), priority=priority, speak=self.speak)
-                result   = f"Task started (ID: {task_id})."
-
-            elif name == "web_search":
-                r = await loop.run_in_executor(None, lambda: web_search_action(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "computer_control":
-                r = await loop.run_in_executor(None, lambda: computer_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "system_status":
-                r = await loop.run_in_executor(None, lambda: system_status(parameters=args, player=self.ui))
-                result = r or "System status retrieved."
-
-            elif name == "task_manager":
-                r = await loop.run_in_executor(None, lambda: task_manager(parameters=args, player=self.ui))
-                result = r or "Task info retrieved."
-
-            elif name == "clipboard":
-                r = await loop.run_in_executor(None, lambda: clipboard_action(parameters=args, player=self.ui))
-                result = r or "Clipboard operation done."
-
-            elif name == "vision_gesture":
-                r = await loop.run_in_executor(
-                    None, lambda: vision_gesture(parameters=args, player=self.ui, speak=self.speak)
-                )
-                result = r or "Vision action done."
-
-            elif name == "recall_memory":
-                from memory.memory_manager import search_memory
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: search_memory(args.get("query", ""), args.get("category", ""))
-                )
-                result = r or "No memory found."
-
-            elif name == "forget_memory":
-                from memory.memory_manager import forget_memory
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: forget_memory(args.get("key", ""), args.get("category", "notes"))
-                )
-                result = r
-
-            elif name == "clear_memory":
-                from memory.memory_manager import clear_memory
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: clear_memory(args.get("category", ""))
-                )
-                result = r
-
-            elif name == "game_updater":
-                r = await loop.run_in_executor(None, lambda: game_updater(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "flight_finder":
-                r = await loop.run_in_executor(None, lambda: flight_finder(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "notify":
-                r = await loop.run_in_executor(None, lambda: notify(parameters=args, player=self.ui))
-                result = r or "Notification sent."
-
-            elif name == "daily_briefing":
-                r = await loop.run_in_executor(None, lambda: daily_briefing(parameters=args, player=self.ui))
-                result = r or "Daily briefing delivered."
-
-            elif name == "wake_word":
-                from actions.wake_word import wake_word as wake_word_action
-                r = await loop.run_in_executor(None, lambda: wake_word_action(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "schedule":
-                result = await self._schedule(args)
-
-            elif name == "create_presentation":
-                from actions.office_builder import create_presentation as _make_pptx
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: _make_pptx(
-                        title=args.get("title", ""),
-                        slides=args.get("slides") or [],
-                        filename=args.get("filename"),
-                    ),
-                )
-                result = r
-
-            elif name == "create_spreadsheet":
-                from actions.office_builder import create_spreadsheet as _make_xlsx
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: _make_xlsx(
-                        filename=args.get("filename", "spreadsheet"),
-                        headers=args.get("headers") or [],
-                        rows=args.get("rows") or [],
-                        sheet_name=args.get("sheet_name", "Sheet1"),
-                    ),
-                )
-                result = r
-
-            elif name == "smart_home_control":
-                from actions.smart_home import smart_home_control as _sh_control
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: _sh_control(
-                        action=args.get("action", "status"),
-                        device=args.get("device"),
-                        value=args.get("value"),
-                    ),
-                )
-                result = r
-
+            # Uniform dispatch through the shared handler table so every
+            # declared tool gets a timeout and works in both voice and
+            # Telegram paths.
+            entry = self._tool_handlers.get(name)
+            if entry is not None:
+                handler, timeout = entry
+                from agent.resilience import run_sync_tool
+                r = await run_sync_tool(lambda: handler(args), name, timeout=timeout)
+                result = r.content or f"{name} done."
             else:
-                # Fall back to the shared handler table used by the Telegram /
-                # agent path so every declared tool works in the voice session too.
-                entry = self._tool_handlers.get(name)
-                if entry is not None:
-                    handler, timeout = entry
-                    r = await loop.run_in_executor(None, lambda: handler(args))
-                    result = r or f"{name} done."
-                else:
-                    result = f"Unknown tool: {name}"
+                result = f"Unknown tool: {name}"
 
         except Exception as e:
             result = f"Tool '{name}' failed: {e}"
             traceback.print_exc()
             log_tool(name, args, error=e)
-            self.speak_error(name, e)
+            self.ui.write_log(f"ERR: {name} — {str(e)[:120]}")
+            try:
+                self.speak(f"Sir, {name} hit an error. {str(e)[:80]}")
+            except Exception:
+                pass
             self.broadcast_remote({"type": "tool", "name": name, "status": "error",
                                    "summary": str(e)[:120]})
 
@@ -2208,7 +2076,7 @@ class KaizumiLive:
             response={"result": result}
         )
 
-    async def _schedule(self, args: dict) -> str:
+    def _schedule(self, args: dict) -> str:
         """In-app timed actions: when they fire, Kaizumi speaks + notifies the
         phone instead of relying on Windows Task Scheduler."""
         action = str(args.get("action", "list")).lower().strip()
@@ -2819,10 +2687,6 @@ class KaizumiLive:
             stream.close()
 
     async def run(self):
-        client = genai.Client(
-            api_key=_get_api_key(),
-            http_options={"api_version": "v1beta"}
-        )
         self._loop = asyncio.get_event_loop()
 
         bt_bridge = None
@@ -2841,9 +2705,30 @@ class KaizumiLive:
         if self.telegram_token:
             tg_task = asyncio.create_task(self._telegram_loop())
 
+        client = None
+        backoff = 3
         try:
             while True:
                 try:
+                    if client is None:
+                        try:
+                            client = genai.Client(
+                                api_key=_get_api_key(),
+                                http_options={"api_version": "v1beta"}
+                            )
+                        except KeyError as ke:
+                            msg = ("No Gemini API key configured. Open "
+                                   "config/api_keys.json and add gemini_api_key.")
+                            log(msg, level="ERROR")
+                            self.ui.write_log(f"SYS: {msg}")
+                            self.ui.set_state("THINKING")
+                            self.ui.set_connecting(False)
+                            await asyncio.sleep(5)
+                            continue
+                        except Exception as ke:
+                            log(f"API client error: {ke}", level="ERROR")
+                            await asyncio.sleep(5)
+                            continue
                     print("[KAIZUMI] 🔌 Connecting...")
                     self.ui.set_state("THINKING")
                     self.ui.set_connecting(True)
@@ -2853,6 +2738,7 @@ class KaizumiLive:
                         client.aio.live.connect(model=LIVE_MODEL, config=config) as session,
                         asyncio.TaskGroup() as tg,
                     ):
+                        backoff = 3  # success resets the backoff
                         self.session        = session
                         self._loop          = asyncio.get_event_loop()
                         self._send_lock     = asyncio.Lock()
@@ -2879,6 +2765,18 @@ class KaizumiLive:
                     log(f"Session error: {e}", level="ERROR")
                     print(f"[KAIZUMI] ⚠️ {e}")
                     traceback.print_exc()
+                    # Rotate the key on quota/exhaustion so a dead key can't
+                    # pin the reconnect loop forever.
+                    try:
+                        from api_keys import mark_exhausted
+                        if client is not None and _looks_like_quota(str(e)):
+                            key = getattr(getattr(client, "_api_client", None),
+                                          "api_key", "")
+                            if key:
+                                mark_exhausted(key)
+                            client = None
+                    except Exception:
+                        pass
 
                 self._ready         = False
                 self.session        = None
@@ -2887,9 +2785,10 @@ class KaizumiLive:
                 self.set_speaking(False)
                 self.ui.set_connection(False)
                 self.ui.set_state("THINKING")
-                log("Session lost — reconnecting in 3s", level="WARN")
-                print("[KAIZUMI] 🔄 Reconnecting in 3s...")
-                await asyncio.sleep(3)
+                log(f"Session lost — reconnecting in {backoff}s", level="WARN")
+                print(f"[KAIZUMI] 🔄 Reconnecting in {backoff}s...")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60)
         finally:
             if tg_task:
                 try:

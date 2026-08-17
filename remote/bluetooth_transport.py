@@ -29,7 +29,9 @@ TOKEN_FILE = Path(__file__).resolve().parent.parent / "config" / "bridge_token.t
 
 
 def get_bridge_token() -> str:
-    """Token source (fail closed): config/bridge_token.txt, then env."""
+    """Token source (fail closed): config/bridge_token.txt, then env.
+    If neither exists, generate a fresh token into the config file so the
+    Android app always has one to use (auto-provisioning on first run)."""
     try:
         if TOKEN_FILE.exists():
             tok = TOKEN_FILE.read_text(encoding="utf-8").strip()
@@ -40,7 +42,17 @@ def get_bridge_token() -> str:
             return env_tok
     except Exception:
         pass
-    return ""
+
+    # Auto-provision: create the token file so --remote works out of the box.
+    import secrets
+    try:
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fresh = secrets.token_hex(16)
+        TOKEN_FILE.write_text(fresh, encoding="utf-8")
+        print("[Bluetooth] 🔑 Generated config/bridge_token.txt")
+        return fresh
+    except Exception:
+        return ""
 
 
 def _envelope(mtype: str, payload: dict, msg_id: str = "") -> dict:
@@ -58,11 +70,15 @@ class BluetoothRemoteClient(RemoteClient):
     def __init__(self, peer: str = "?"):
         super().__init__(peer)
         self._notify_char = None
+        self._subscriber = None
         self.authenticated = False
         self.pending_command_id = ""   # id of the last in-flight command
 
     def bind_notify(self, notify_char) -> None:
         self._notify_char = notify_char
+
+    def bind_subscriber(self, subscriber) -> None:
+        self._subscriber = subscriber
 
     async def _send_buffer(self, data: bytes) -> bool:
         if self._notify_char is None:
@@ -370,7 +386,17 @@ class BluetoothBridge:
             loop = getattr(self.kaizumi, "_loop", None)
             if loop is None:
                 return
-            asyncio.run_coroutine_threadsafe(self._on_client_subscribed(sender), loop)
+            try:
+                removed = list(args.removed_clients) if args else []
+            except Exception:
+                removed = []
+            try:
+                added = list(args.added_clients) if args else []
+            except Exception:
+                added = []
+            asyncio.run_coroutine_threadsafe(
+                self._on_clients_changed(sender, added, removed), loop
+            )
 
         notify_char.add_subscribed_clients_changed(on_subscribed)
 
@@ -387,17 +413,23 @@ class BluetoothBridge:
               f"{SERVICE_UUID} (scan for 'Kaizumi Remote')")
         return True
 
-    async def _on_client_subscribed(self, notify_char):
-        """A phone subscribed to the notify characteristic — track a client."""
+    async def _on_clients_changed(self, notify_char, added, removed):
+        """Track GATT subscribers: add new ones, drop departed ones."""
         async with self._clients_lock:
-            for c in self._clients:
-                if c._notify_char is notify_char:
-                    return
-            client = BluetoothRemoteClient("BLE")
-            client.bind_notify(notify_char)
-            client.attach_loop(getattr(self.kaizumi, "_loop", None))
-            self._clients.add(client)
-            print(f"[Bluetooth] 📱 Phone subscribed ({len(self._clients)} active)")
+            # Drop clients whose underlying subscriber left.
+            removed_ids = {id(s) for s in removed}
+            for c in list(self._clients):
+                if c._subscriber is not None and id(c._subscriber) in removed_ids:
+                    self._clients.discard(c)
+                    print(f"[Bluetooth] 📵 Phone unsubscribed ({len(self._clients)} active)")
+            # Add any new subscriber.
+            for sub in added:
+                client = BluetoothRemoteClient("BLE")
+                client.bind_notify(notify_char)
+                client.bind_subscriber(sub)
+                client.attach_loop(getattr(self.kaizumi, "_loop", None))
+                self._clients.add(client)
+                print(f"[Bluetooth] 📱 Phone subscribed ({len(self._clients)} active)")
 
     async def stop(self):
         if not self._advertising:

@@ -870,7 +870,20 @@ class KaizumiUI:
     # ── API key ───────────────────────────────────────────────────────────────
 
     def _api_keys_exist(self):
-        return API_FILE.exists()
+        """A usable Gemini key must exist (env or config), not just the file."""
+        if os.environ.get("KAIZUMI_GEMINI_API_KEY", "").strip():
+            return True
+        if os.environ.get("KAIZUMI_GEMINI_API_KEYS", "").strip():
+            return True
+        try:
+            cfg = json.loads(API_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        if isinstance(cfg.get("gemini_api_key"), str) and cfg["gemini_api_key"].strip():
+            return True
+        keys = cfg.get("gemini_api_keys")
+        return bool(isinstance(keys, list) and
+                    any(isinstance(k, str) and k.strip() for k in keys))
 
     def wait_for_api_key(self):
         while not self._api_key_ready:

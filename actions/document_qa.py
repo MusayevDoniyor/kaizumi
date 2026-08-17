@@ -69,12 +69,49 @@ def _resolve_source(raw: str) -> str:
     return None
 
 
+def _is_private_target(url: str) -> bool:
+    """True if url resolves to a loopback/private/link-local/literal-IP host
+    (SSRF guard: never fetch internal networks or cloud metadata)."""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").strip().strip("[]").lower()
+    except Exception:
+        return False
+    if not host:
+        return True
+
+    import socket
+    try:
+        ip = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)[0][4][0]
+    except Exception:
+        return True  # unresolvable — fail closed
+
+    if ip == "::1":
+        return True
+    try:
+        import ipaddress
+        return ipaddress.ip_address(ip).is_private or \
+            ipaddress.ip_address(ip).is_loopback or \
+            ipaddress.ip_address(ip).is_link_local
+    except Exception:
+        return ip.startswith("127.") or ip.startswith("169.254.")
+
+
 def _extract_url(url: str) -> str:
     if not _REQUESTS:
         raise RuntimeError("requests is not installed.")
+    if _is_private_target(url):
+        raise RuntimeError("I can't fetch internal or private network URLs, sir.")
+    if "169.254.169.254" in url or "metadata.google.internal" in url:
+        raise RuntimeError("That URL is off-limits, sir.")
     headers = {"User-Agent": "Mozilla/5.0 (Kaizumi/assistant)"}
     resp = requests.get(url, headers=headers, timeout=20)
     resp.raise_for_status()
+    # Guard redirect chains too (a public URL can redirect to internal hosts).
+    if resp.history:
+        for hop in resp.history + [resp]:
+            if _is_private_target(hop.url):
+                raise RuntimeError("That URL redirects to an internal network, sir.")
     if _BS4:
         soup = BeautifulSoup(resp.text, "html.parser")
         for tag in soup(["script", "style", "noscript"]):

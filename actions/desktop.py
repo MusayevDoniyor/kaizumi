@@ -7,6 +7,7 @@
 # Built-in: wallpaper change, icon arrangement, desktop cleanup, organize by type
 
 import os
+import re
 import sys
 import json
 import shutil
@@ -44,11 +45,15 @@ BLOCKED_KEYWORDS = [
     "__import__", "open(",
     "sys.exit", "quit()",
     ".unlink(", "write_text", "write_bytes",
+    "ctypes", "windll", "winreg", "os.startfile",
+    "__class__", "__subclasses__", "__globals__", "__builtins__",
+    "__base__", "__bases__", "__mro__", "globals()", "locals()",
 ]
 
 
 def _is_safe_code(code: str) -> tuple[bool, str]:
-    code_lower = code.lower()
+    # Normalize so spaced/obfuscated forms can't dodge the keyword filter.
+    code_lower = re.sub(r"\s+", "", code).lower()
     for keyword in BLOCKED_KEYWORDS:
         if keyword.lower() in code_lower:
             return False, f"Blocked operation: '{keyword}'"
@@ -74,7 +79,6 @@ Generate safe Python code using ONLY these allowed modules:
 - shutil (ONLY: copy2, copytree, move, disk_usage)
 - os.path (ONLY: exists, join, dirname, basename, splitext)
 - time (sleep only)
-- ctypes (Windows API calls only)
 - winreg (registry READ only)
 
 Desktop path: {desktop}
@@ -112,7 +116,6 @@ def _execute_generated_code(code: str) -> str:
         "pyautogui": pyautogui,
         "Path": Path,
         "shutil": shutil,
-        "ctypes": ctypes,
         "time": __import__("time"),
         "os": type("os", (), {
             "path": os.path,

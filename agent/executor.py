@@ -12,6 +12,10 @@ from agent.planner       import create_plan, replan
 from agent.error_handler import analyze_error, generate_fix, ErrorDecision
 
 
+class UnknownToolError(RuntimeError):
+    """The planner named a tool the executor doesn't implement — not retryable."""
+
+
 def get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
@@ -288,8 +292,95 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         from actions.wake_word import wake_word
         return wake_word(parameters=parameters, player=None) or "Done."
 
+    elif tool == "gmail":
+        from actions.gmail import gmail_action
+        return gmail_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "read_pdf":
+        from actions.pdf_reader import read_pdf_action
+        return read_pdf_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "pdf_qa":
+        from actions.pdf_reader import pdf_qa
+        return pdf_qa(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "autostart":
+        from actions.autostart import autostart_action
+        return autostart_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "vision_click":
+        from actions.vision_click import vision_click_action
+        return vision_click_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "monitor_alerts":
+        from actions.monitor import monitor_action
+        return monitor_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "email_watch":
+        from actions.monitor import email_watch_action
+        return email_watch_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "pc_health":
+        from actions.guardian import guardian_action
+        return guardian_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "translate":
+        from actions.translate import translate_action
+        return translate_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "media_control":
+        from actions.media_control import media_control_action
+        return media_control_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "read_document":
+        from actions.document_qa import read_document
+        return read_document(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "document_qa":
+        from actions.document_qa import document_qa
+        return document_qa(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "calendar":
+        from actions.calendar import calendar_action
+        return calendar_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "drive":
+        from actions.drive import drive_action
+        return drive_action(parameters=parameters, response=None, player=None) or "Done."
+
+    elif tool == "schedule":
+        return f"Schedule handled by the main session, sir — background agent doesn't run timers."
+
+    elif tool == "create_presentation":
+        from actions.office_builder import create_presentation as _make_pptx
+        return _make_pptx(title=parameters.get("title", ""),
+                          slides=parameters.get("slides") or [],
+                          filename=parameters.get("filename")) or "Done."
+
+    elif tool == "create_spreadsheet":
+        from actions.office_builder import create_spreadsheet as _make_xlsx
+        return _make_xlsx(filename=parameters.get("filename", "spreadsheet"),
+                          headers=parameters.get("headers") or [],
+                          rows=parameters.get("rows") or [],
+                          sheet_name=parameters.get("sheet_name", "Sheet1")) or "Done."
+
+    elif tool == "smart_home_control":
+        from actions.smart_home import smart_home_control as _sh_control
+        return _sh_control(action=parameters.get("action", "status"),
+                           device=parameters.get("device"),
+                           value=parameters.get("value")) or "Done."
+
+    elif tool in ("save_memory", "set_mode", "set_voice", "set_mood"):
+        return f"{tool} is a main-session preference tool, sir — skipping in background."
+
+    elif tool == "api_add_key":
+        return "api_add_key requires the main session, sir — skipping in background."
+
+    elif tool in ("google_auth", "google_auth_status"):
+        return f"{tool} needs the main session UI, sir — skipping in background."
+
     else:
-        raise RuntimeError(f"Unknown tool '{tool}'.")
+        raise UnknownToolError(f"Unknown tool '{tool}'.")
 
 
 TOOL_TIMEOUT_S = 180  # hard cap per tool call; a hung tool must not starve the queue
@@ -365,6 +456,15 @@ class AgentExecutor:
                         step_results[step_num] = result 
                         completed_steps.append(step)
                         print(f"[Executor] ✅ Step {step_num} done: {str(result)[:100]}")
+                        step_ok = True
+                        break
+
+                    except UnknownToolError as e:
+                        # Deterministic, cheap: the tool simply doesn't exist.
+                        # Don't spend an LLM analysis round-trip on it — skip.
+                        print(f"[Executor] ⏭️ Step {step_num}: {e} — skipping")
+                        completed_steps.append(step)
+                        step_results[step_num] = str(e)
                         step_ok = True
                         break
 
