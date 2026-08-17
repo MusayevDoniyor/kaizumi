@@ -48,3 +48,12 @@ models/hey_kaizumi_v0.1.onnx.data
 
 # Reference clone for study (openjarvis)
 openjarvis_example/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
+*.aab

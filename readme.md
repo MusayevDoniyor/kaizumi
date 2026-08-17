@@ -16,8 +16,8 @@
 - 👁️ **Visual awareness** — screen analysis and webcam understanding
 - 🧠 **Persistent memory** — remembers your name, preferences, projects, and plans across sessions
 - 🖥️ **Full PC control** — launch apps, manage files, run terminal commands, take screenshots
-- 📱 **Phone bridge** — remote voice bridge via your phone over WebSocket
-- 💬 **Telegram control** — remote-control the assistant from any Telegram chat
+- 📱 **Bluetooth phone app** — control the assistant from the native Android app over BLE (no USB/ADB)
+- 💬 **Telegram control** — remote-control the assistant from any Telegram chat, anywhere
 - 🕐 **Guardian** — watches battery, RAM, CPU, disk, and temperature; alerts you when thresholds are crossed
 - 🗓️ **Google integration** — Gmail, Calendar, Drive via OAuth
 - 🧩 **30+ tools** — web search, reminders, PDF reading, spreadsheets, PowerPoint, YouTube, weather, translation, and more
@@ -34,7 +34,6 @@
 - **Python 3.11+** (tested on 3.14)
 - A microphone
 - A free [Gemini API key](https://aistudio.google.com/apikey)
-- (Optional) `cloudflared` for the public phone tunnel
 
 ---
 
@@ -76,7 +75,7 @@ Alternatively, secrets can be provided as environment variables (useful for dock
 | `KAIZUMI_GEMINI_API_KEYS` | `gemini_api_keys` (comma-separated) |
 | `KAIZUMI_TELEGRAM_TOKEN` | `telegram_bot_token` |
 | `KAIZUMI_TELEGRAM_CHAT_ID` | `telegram_chat_id` |
-| `KAIZUMI_BRIDGE_TOKEN` | phone-bridge token (otherwise auto-generated in `config/bridge_token.txt`) |
+| `KAIZUMI_BRIDGE_TOKEN` | Bluetooth-app token (auto-generated in `config/bridge_token.txt`) |
 
 System ready in minutes.
 
@@ -94,9 +93,7 @@ All configuration lives in `config/`. Copy any `*.example.json` to `.json` (or r
 
 ### Remote control (optional)
 
-- **Phone bridge:** `python main.py --remote` opens a WebSocket on port 8765. Open `remote/interface.html` on your phone, or start a tunnel:
-  - `start_tunnel.cmd` — uses `cloudflared` to expose the port publicly and saves the URL to `logs/remote_url.txt`.
-  - On first start a **random access token** is generated and shown in the UI (`config/bridge_token.txt`). You must enter it on the phone page — connections without it are rejected, even behind a public tunnel.
+- **Bluetooth phone app:** `python main.py --remote` starts the BLE peripheral (scan name *Kaizumi Remote*). Build and install the Android app from `android/` ([`android/README.md`](android/README.md)), enter the access token from `config/bridge_token.txt`, and connect — no USB, no ADB, no website.
 - **Telegram:** add your bot token and chat id to `config/api_keys.json`. Kaizumi starts polling automatically, and **only responds to messages from your configured chat id**.
 
 ---
@@ -109,7 +106,7 @@ Kaizumi classifies every tool into **LOW / MEDIUM / HIGH** risk (`safety.py`) an
 - When a high-risk tool is requested, Kaizumi asks *"May I …?"* and waits for an explicit yes before re-invoking the action.
 - The model is instructed to **never set `confirm=true` on its own** — only after you approve.
 - Secrets (API keys, tokens, passwords) are **redacted from logs and never written to memory**.
-- Phone bridge requires the generated access token; Telegram is locked to your chat id.
+- The Bluetooth app requires the access token; Telegram is locked to your chat id.
 
 ---
 

@@ -38,7 +38,7 @@ RULES:
 
 CONFIRMATION RULE (critical):
 - Some tools (cmd_control, desktop_control, file_controller delete/move/organize,
-  gmail send, send_sms, task_manager kill, game_updater, code_helper run,
+  gmail send, task_manager kill, game_updater, code_helper run,
   computer_settings shutdown/restart/sleep, drive delete, etc.) require explicit
   user approval before they run.
 - If a tool response says "This action requires your permission", you MUST ask the

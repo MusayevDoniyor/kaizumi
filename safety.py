@@ -34,8 +34,6 @@ TOOL_RISK = {
     "pdf_qa":            Risk.LOW,
     "read_document":     Risk.LOW,
     "document_qa":       Risk.LOW,
-    "phone_info":        Risk.LOW,
-    "read_notifications": Risk.LOW,
     "monitor_alerts":    Risk.LOW,
     "pc_health":         Risk.LOW,
     "translate":         Risk.LOW,
@@ -75,9 +73,7 @@ TOOL_RISK = {
 
     # Communicate externally
     "send_message":      Risk.MEDIUM,
-    "send_sms":          Risk.HIGH,
     "gmail":             Risk.MEDIUM,
-    "phone_ring":        Risk.LOW,
 
     # Arbitrary / destructive
     "cmd_control":       Risk.HIGH,
@@ -121,9 +117,6 @@ _ACTION_RISK = {
         "compose": Risk.HIGH,
         "delete": Risk.HIGH,
         None: Risk.LOW,
-    },
-    "send_sms": {
-        None: Risk.HIGH,
     },
     "task_manager": {
         "kill": Risk.HIGH,
@@ -235,9 +228,6 @@ def describe(name: str, args: dict | None) -> str:
 
     if name == "gmail" and action in ("send", "compose"):
         return f"send an email to {args.get('to', args.get('recipient', 'recipient'))}"
-
-    if name == "send_sms":
-        return f"send an SMS to {args.get('phone', 'recipient')}"
 
     if name == "task_manager" and action in ("kill", "end", "kill_process"):
         return f"kill the process {args.get('process', args.get('name', 'unknown'))}"

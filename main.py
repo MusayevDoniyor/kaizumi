@@ -1035,55 +1035,6 @@ TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "send_sms",
-        "description": (
-            "Sends an SMS through the connected Android phone (the Kaizumi bridge "
-            "app). Requires a phone to be connected to the PC bridge. "
-            "Use for 'text X number saying Y', 'send an SMS to ...'. "
-            "If no phone is connected, explain that the user needs to open the "
-            "Kaizumi app and connect first."
-        ),
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "phone":   {"type": "STRING", "description": "Recipient phone number (international format preferred)"},
-                "message": {"type": "STRING", "description": "SMS text to send"}
-            },
-            "required": ["phone", "message"]
-        }
-    },
-    {
-        "name": "read_notifications",
-        "description": (
-            "Reads the notifications currently visible on the connected Android "
-            "phone (WhatsApp, Telegram, Messenger, calls, etc). Requires the Kaizumi "
-            "bridge app to be connected and notification access to be enabled on the "
-            "phone. Use when the user asks 'check my phone notifications', "
-            "'did I get any messages'."
-        ),
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "limit": {"type": "INTEGER", "description": "Max number of notifications to return (default: 10)"}
-            },
-            "required": []
-        }
-    },
-    {
-        "name": "phone_info",
-        "description": (
-            "Returns status information about the connected Android phone: model, "
-            "Android version, battery level, network type and free memory. "
-            "Use when the user asks 'how is my phone', 'what is the battery on my "
-            "phone', 'phone status'."
-        ),
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {},
-            "required": []
-        }
-    },
-    {
         "name": "gmail",
         "description": (
             "Sends and reads Gmail. 'send' composes an email to any address; "
@@ -1142,14 +1093,14 @@ TOOL_DECLARATIONS = [
         "description": (
             "Controls whether Kaizumi starts automatically at Windows login. "
             "Actions: status | enable | disable. 'enable' registers Kaizumi in "
-            "the startup list (optionally with the phone bridge via 'remote'). "
-            "Use for 'start at login', 'run on startup', 'open automatically'."
+            "the startup list (optionally with the Bluetooth phone transport via "
+            "'remote'). Use for 'start at login', 'run on startup', 'open automatically'."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "action": {"type": "STRING", "description": "status | enable | disable (default: status)"},
-                "remote": {"type": "BOOLEAN", "description": "For 'enable': also start the phone bridge (default true)"}
+                "remote": {"type": "BOOLEAN", "description": "For 'enable': also start the Bluetooth transport (default true)"}
             },
             "required": []
         }
@@ -1170,19 +1121,6 @@ TOOL_DECLARATIONS = [
                 "only_coords": {"type": "BOOLEAN", "description": "Optional: return coordinates without clicking"}
             },
             "required": ["target"]
-        }
-    },
-    {
-        "name": "phone_ring",
-        "description": (
-            "Makes the connected phone vibrate and beep so it can be found. "
-            "Use when the user asks 'find my phone', 'ring my phone', 'wheres my "
-            "phone'. Requires the Kaizumi app to be open and connected on the phone."
-        ),
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {},
-            "required": []
         }
     },
     {
@@ -1408,7 +1346,7 @@ for _decl in TOOL_DECLARATIONS:
     _name = _decl.get("name", "")
     if _name in {
         "cmd_control", "desktop_control", "file_controller", "gmail",
-        "send_sms", "task_manager", "code_helper", "game_updater",
+        "task_manager", "code_helper", "game_updater",
         "computer_settings", "computer_control", "calendar", "drive",
         "smart_home_control", "browser_control", "send_message", "autostart",
     }:
@@ -1421,7 +1359,7 @@ for _decl in TOOL_DECLARATIONS:
 
 class KaizumiLive:
 
-    def __init__(self, ui: KaizumiUI, remote_port: int | None = None):
+    def __init__(self, ui: KaizumiUI, enable_bluetooth: bool = False):
         self.ui             = ui
         self.session        = None
         self.audio_in_queue = None
@@ -1441,8 +1379,7 @@ class KaizumiLive:
         self.loop_guard     = LoopGuard()
         self._tool_handlers = self._build_tool_handlers()
         self.ui.on_text_command = self._on_text_command
-        self.remote_clients = set()
-        self.remote_port    = remote_port
+        self.enable_bluetooth = enable_bluetooth
         self._schedules     = []
         self._sched_lock    = threading.Lock()
 
@@ -1474,8 +1411,8 @@ class KaizumiLive:
             if not self._ready or not self.session:
                 print("[WakeWord] ⚠️ Ignored — session not ready.")
                 return
-            if self.remote_clients:
-                print("[WakeWord] 🚫 Ignored — phone remote active, barge-in on the phone.")
+            if getattr(self, "_bt_bridge", None) is not None and self._bt_bridge.connected_count() > 0:
+                print("[WakeWord] 🚫 Ignored — phone remote active via Bluetooth.")
                 return
             self.ui.muted = False
             self.set_speaking(False)
@@ -1599,7 +1536,9 @@ class KaizumiLive:
                 self.ui.set_state("LISTENING")
         else:
             self.ui.set_state("ONLINE")
-        if self.remote_clients:
+        bt = getattr(self, "_bt_bridge", None)
+        bt_active = bt is not None and bt.connected_count() > 0
+        if bt_active:
             state = {
                 PHASE_THINKING:  "THINKING",
                 PHASE_SPEAKING:  "SPEAKING",
@@ -1608,27 +1547,22 @@ class KaizumiLive:
             self.broadcast_remote({"type": "phase", "state": state})
 
     def broadcast_remote(self, payload: dict):
-        """Send a JSON event to every connected phone (async-safe)."""
-        if not self.remote_clients or not self._loop:
-            return
-        for ws in list(self.remote_clients):
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    ws.send(json.dumps(payload, ensure_ascii=False)), self._loop
-                )
-            except Exception:
-                self.remote_clients.discard(ws)
-
-    def _safely_send(self, ws, payload: dict):
-        """Send one JSON event to one phone (async-safe)."""
-        if not self._loop:
+        """Send a JSON event to every connected Bluetooth phone (async-safe)."""
+        bt = getattr(self, "_bt_bridge", None)
+        if bt is None or not self._loop:
             return
         try:
             asyncio.run_coroutine_threadsafe(
-                ws.send(json.dumps(payload, ensure_ascii=False)), self._loop
+                bt.broadcast(payload), self._loop
             )
         except Exception:
             pass
+
+    def _safely_send(self, client, payload: dict):
+        """Send one JSON event to one Bluetooth phone (async-safe)."""
+        if not self._loop:
+            return
+        client.send_json_sync(payload)
 
     def _current_phase(self) -> str:
         with self._phase_lock:
@@ -2240,27 +2174,6 @@ class KaizumiLive:
                 )
                 result = r
 
-            elif name in ("send_sms", "read_notifications", "phone_info", "phone_ring"):
-                from remote_bridge import (
-                    send_sms_via_phone, read_notifications_via_phone,
-                    phone_info_via_phone, ring_phone_via_phone,
-                )
-                if name == "send_sms":
-                    r = await loop.run_in_executor(
-                        None,
-                        lambda: send_sms_via_phone(self, args.get("phone", ""), args.get("message", "")),
-                    )
-                elif name == "read_notifications":
-                    r = await loop.run_in_executor(
-                        None,
-                        lambda: read_notifications_via_phone(self, args.get("limit", 10)),
-                    )
-                elif name == "phone_info":
-                    r = await loop.run_in_executor(None, lambda: phone_info_via_phone(self))
-                else:
-                    r = await loop.run_in_executor(None, lambda: ring_phone_via_phone(self))
-                result = r
-
             else:
                 # Fall back to the shared handler table used by the Telegram /
                 # agent path so every declared tool works in the voice session too.
@@ -2605,7 +2518,8 @@ class KaizumiLive:
         phase   = self._current_phase().upper()
         mode, mood = _get_style_from_memory(load_memory())
         voice   = _get_voice_from_memory(load_memory())
-        clients = len(getattr(self, "remote_clients", None) or ())
+        bt = getattr(self, "_bt_bridge", None)
+        clients = bt.connected_count() if bt is not None else 0
         now     = datetime.now().strftime("%A, %B %d, %Y — %I:%M %p")
         return (
             "📊 <b>Kaizumi statusi</b>\n"
@@ -2825,14 +2739,22 @@ class KaizumiLive:
                             full_in = " ".join(in_buf).strip()
                             if full_in:
                                 self.ui.write_log(f"You: {full_in}")
-                                self.broadcast_remote({"type": "transcript", "role": "user", "text": full_in})
                             in_buf = []
 
                             full_out = " ".join(out_buf).strip()
                             if full_out:
                                 self.ui.write_log(f"Kaizumi: {full_out}")
-                                self.broadcast_remote({"type": "transcript", "role": "kaizumi", "text": full_out})
                             out_buf = []
+
+                            bt = getattr(self, "_bt_bridge", None)
+                            if bt is not None:
+                                try:
+                                    if full_in:
+                                        await bt.forward_transcript("user", full_in)
+                                    if full_out:
+                                        await bt.forward_transcript("kaizumi", full_out)
+                                except Exception as e:
+                                    print(f"[Bluetooth] ⚠️ forward: {e}")
 
                             self._update_rolling(full_in, full_out)
 
@@ -2884,19 +2806,7 @@ class KaizumiLive:
                 if not self._is_speaking:
                     self.set_speaking(True)
                 self._last_play_ts = time.monotonic()
-                if self.remote_clients:
-                    # Phone is the audio device — stream only to it, never the
-                    # PC speakers too (that double-playback is what made the
-                    # phone "hear itself" through the room).
-                    message = bytes(chunk)
-                    for ws in list(self.remote_clients):
-                        try:
-                            await ws.send(message)
-                        except Exception as e:
-                            print(f"[Play] ⚠️ remote send: {e}")
-                            self.remote_clients.discard(ws)
-                else:
-                    await asyncio.to_thread(stream.write, chunk)
+                await asyncio.to_thread(stream.write, chunk)
                 if self.audio_in_queue.empty() and self._turn_complete:
                     self._turn_complete = False
                     self.set_speaking(False)
@@ -2913,22 +2823,19 @@ class KaizumiLive:
             api_key=_get_api_key(),
             http_options={"api_version": "v1beta"}
         )
+        self._loop = asyncio.get_event_loop()
 
-        bridge = None
-        if self.remote_port:
+        bt_bridge = None
+        if self.enable_bluetooth:
+            # Bluetooth phone transport (no USB/ADB). Silently off if winrt
+            # isn't installed or the adapter can't do BLE peripheral.
             try:
-                from remote_bridge import start_bridge, get_bridge_token
-                bridge = await start_bridge(self, self.remote_port)
-                _btok = get_bridge_token()
-                log(f"Bridge ON (port {self.remote_port}, page + /ws)")
-                if _btok:
-                    self.ui.write_log(
-                        "SYS: 📱 Remote access token: " + _btok + " — enter it on the phone page."
-                    )
+                from remote.bluetooth_transport import start_bluetooth_bridge
+                bt_bridge = await start_bluetooth_bridge(self)
             except Exception as e:
-                log(f"Bridge FAILED: {e}", level="ERROR")
-                print(f"[Bridge] ⚠️ Could not start bridge: {e}")
-                traceback.print_exc()
+                bt_bridge = None
+                log(f"Bluetooth transport OFF: {e}", level="WARN")
+            self._bt_bridge = bt_bridge
 
         tg_task = None
         if self.telegram_token:
@@ -2989,9 +2896,12 @@ class KaizumiLive:
                     tg_task.cancel()
                 except Exception:
                     pass
-            if bridge:
-                from remote_bridge import close_bridge
-                close_bridge(bridge)
+            if bt_bridge:
+                try:
+                    from remote.bluetooth_transport import close_bluetooth_bridge
+                    close_bluetooth_bridge()
+                except Exception:
+                    pass
 
 
 def _tk_exception_handler(exc_type, exc_value, tb):
@@ -3008,20 +2918,11 @@ def main():
     log(f"Base dir: {BASE_DIR}\nLog file: {log_file}")
     ui = KaizumiUI("face.png")
 
-    remote_port = None
-    args = sys.argv[1:]
-    if "--remote" in args:
-        remote_port = 8765
-    for i, a in enumerate(args):
-        if a in ("--remote-port", "--port") and i + 1 < len(args):
-            try:
-                remote_port = int(args[i + 1])
-            except ValueError:
-                pass
+    enable_bluetooth = "--remote" in sys.argv[1:]
 
     def runner():
         ui.wait_for_api_key()
-        kaizumi = KaizumiLive(ui, remote_port=remote_port)
+        kaizumi = KaizumiLive(ui, enable_bluetooth=enable_bluetooth)
         kaizumi.attach_tray()
         try:
             asyncio.run(kaizumi.run())
