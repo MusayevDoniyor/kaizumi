@@ -23,3 +23,13 @@ def test_unknown_game_is_rejected():
     except ValueError:
         return
     assert False, "unknown arcade game should raise ValueError"
+
+
+def test_shape_creator_and_floor_lava_use_cv_signals():
+    game = VisionArcade()
+    game.start("shape_creator")
+    game.on_gesture("open hand")
+    assert game.state.shape == "square"
+    game.start("floor_lava")
+    game.on_pose(True)
+    assert game.state.score == 1

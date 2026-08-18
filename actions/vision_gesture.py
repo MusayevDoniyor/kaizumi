@@ -387,6 +387,8 @@ class VisionService:
 
     def _handle_posture(self, pose):
         if not pose:
+            if self._player and hasattr(self._player, "set_arcade_pose"):
+                self._player.set_arcade_pose(False, 0.0)
             self._tell("No body detected in frame.", cooldown=5.0)
             return
         nose = pose[POS_NOSE]
@@ -396,10 +398,16 @@ class VisionService:
         shoulder_y = min(so[0].y, so[1].y)
 
         if wrist_top < shoulder_y - 0.1:
+            if self._player and hasattr(self._player, "set_arcade_pose"):
+                self._player.set_arcade_pose(True, 0.0)
             self._tell("Arms are raised.", cooldown=4.0)
         elif abs(nose.x - sh_mid[0]) > 0.12:
+            if self._player and hasattr(self._player, "set_arcade_pose"):
+                self._player.set_arcade_pose(False, abs(nose.x - sh_mid[0]))
             self._tell("Leaning to the side.", cooldown=4.0)
         else:
+            if self._player and hasattr(self._player, "set_arcade_pose"):
+                self._player.set_arcade_pose(False, 0.0)
             self._tell("Body detected, neutral posture.", cooldown=8.0)
 
     def _handle_motion(self, frame):

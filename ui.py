@@ -438,7 +438,13 @@ class KaizumiUI:
         toolbar.pack(fill="x", padx=10, pady=10)
         for label, game in [("FACE FILTER", "face_filter"),
                             ("GESTURE PONG", "gesture_pong"),
-                            ("ROCK PAPER SCISSORS", "rps")]:
+                            ("ROCK PAPER SCISSORS", "rps"),
+                            ("SHAPE CREATOR", "shape_creator"),
+                            ("FLOOR IS LAVA", "floor_lava"),
+                            ("PLANET EXPLORER", "planet_explorer"),
+                            ("WHIRLPOOL", "whirlpool"),
+                            ("LASER DEFENSE", "laser_defense"),
+                            ("ARPEGGIATOR", "arpeggiator")]:
             tk.Button(toolbar, text=label, command=lambda g=game: self._start_arcade_game(g),
                       bg=self.col["input"], fg=self.col["text"], activebackground=self.col["pri"],
                       activeforeground=self.col["bg"], relief="flat", font=("Consolas", 9, "bold"),
@@ -470,6 +476,11 @@ class KaizumiUI:
             return
         self._safe_ui(self._apply_arcade_signal, gesture, x)
 
+    def set_arcade_pose(self, arms_raised: bool, lean: float = 0.0):
+        if not self.arcade_open:
+            return
+        self._safe_ui(self._arcade.on_pose, arms_raised, lean)
+
     def _apply_arcade_signal(self, gesture, x):
         self._arcade.on_gesture(gesture, x)
 
@@ -493,6 +504,31 @@ class KaizumiUI:
             draw.rectangle((10, 10, image.width - 10, 62), outline="#00d4ff", width=2)
             draw.text((24, 22), f"{state.game.upper()}   SCORE {state.score}   LIVES {state.lives}", fill="#8ffcff")
             draw.text((24, 42), state.message, fill="#ffcc00")
+            if state.game == "floor_lava":
+                draw.rectangle((0, int(image.height * 0.82), image.width, image.height), fill="#8b1900")
+                draw.text((24, int(image.height * 0.86)), "LAVA", fill="#ffcc00")
+            elif state.game == "planet_explorer":
+                cx, cy = int(image.width * 0.72), int(image.height * 0.55)
+                draw.ellipse((cx - 100, cy - 100, cx + 100, cy + 100), outline="#38bdf8", width=5)
+                px = cx - 100 + int(state.planet_x * 200)
+                draw.line((cx, cy, px, cy - 130), fill="#ffcc00", width=3)
+            elif state.game == "laser_defense":
+                x = int(state.hand_x * image.width)
+                draw.line((x, image.height - 30, x, 80), fill="#ff3366", width=4)
+            elif state.game == "arpeggiator":
+                for i, note in enumerate(("C", "D", "E", "G", "A")):
+                    x = 30 + i * 70
+                    bar = 35 if note == state.note else 15
+                    draw.rectangle((x, image.height - 50 - bar, x + 42, image.height - 50), fill="#00d4ff")
+                    draw.text((x + 12, image.height - 42), note, fill="#001520")
+            elif state.game == "shape_creator":
+                cx, cy = int(state.hand_x * image.width), int(image.height * 0.55)
+                if state.shape == "circle":
+                    draw.ellipse((cx - 45, cy - 45, cx + 45, cy + 45), outline="#00d4ff", width=5)
+                elif state.shape == "square":
+                    draw.rectangle((cx - 45, cy - 45, cx + 45, cy + 45), outline="#00d4ff", width=5)
+                else:
+                    draw.polygon((cx, cy - 55, cx - 55, cy + 45, cx + 55, cy + 45), outline="#00d4ff")
             self._arcade_image = ImageTk.PhotoImage(image)
             self._arcade_label.configure(image=self._arcade_image, text="")
         except Exception:
