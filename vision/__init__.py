@@ -7,6 +7,8 @@ from .vision_pipeline import PipelineResult, VisionPipeline
 from .ocr_engine import OCRConfig, OCREngine, CodeReader
 from .face_privacy import FacePrivacyConfig, FacePrivacyProcessor
 from .segmentation import SegmentationConfig, ForegroundSegmenter
+from .understanding import SceneCaptioner, VisualQuestionAnswering
+from .anomaly_monitor import AnomalyConfig, AnomalyMonitor
 
 __all__ = [
     "CameraManager", "CameraConfig", "FramePacket", "VisionEvent",
@@ -15,4 +17,6 @@ __all__ = [
     "OCRConfig", "OCREngine", "CodeReader",
     "FacePrivacyConfig", "FacePrivacyProcessor",
     "SegmentationConfig", "ForegroundSegmenter",
+    "SceneCaptioner", "VisualQuestionAnswering",
+    "AnomalyConfig", "AnomalyMonitor",
 ]

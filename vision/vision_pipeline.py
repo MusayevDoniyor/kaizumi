@@ -9,6 +9,8 @@ from .camera_manager import FramePacket
 from .object_detector import ObjectDetector
 from .ocr_engine import CodeReader, OCREngine
 from .face_privacy import FacePrivacyProcessor
+from .understanding import SceneCaptioner
+from .anomaly_monitor import AnomalyMonitor
 from .vision_events import VisionEvent
 
 
@@ -25,12 +27,17 @@ class VisionPipeline:
     def __init__(self, detector: ObjectDetector | None = None,
                  on_event: Callable[[VisionEvent], None] | None = None,
                  ocr: OCREngine | None = None, codes: CodeReader | None = None,
-                 privacy: FacePrivacyProcessor | None = None):
+                 privacy: FacePrivacyProcessor | None = None,
+                 captioner: SceneCaptioner | None = None,
+                 anomaly: AnomalyMonitor | None = None):
         self.detector = detector
         self.ocr = ocr
         self.codes = codes
         self.privacy = privacy
+        self.captioner = captioner
+        self.anomaly = anomaly
         self.last_frame: Any = None
+        self.last_caption: str | None = None
         self.on_event = on_event
         self.last_result: PipelineResult | None = None
 
@@ -46,6 +53,10 @@ class VisionPipeline:
             events.extend(self.ocr.extract(frame))
         if self.codes is not None:
             events.extend(self.codes.read(frame))
+        if self.anomaly is not None:
+            events.extend(self.anomaly.observe(events))
+        if self.captioner is not None:
+            self.last_caption = self.captioner.caption(events)
         self.last_frame = frame
         result = PipelineResult(packet.sequence, packet.timestamp, events)
         self.last_result = result
