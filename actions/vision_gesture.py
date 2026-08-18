@@ -278,6 +278,10 @@ class VisionService:
                 pass
         if self._player:
             self._player.write_log(f"Vision: {text}")
+            try:
+                self._player.set_vision_signal(text)
+            except Exception:
+                pass
         print(f"[VisionGesture] 💬 {text}")
 
     def _handle_gesture(self, hands):

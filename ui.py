@@ -165,6 +165,9 @@ class KaizumiUI:
         self._batt_ts      = 0.0
 
         self.on_text_command = None
+        self.vision_mode = "STANDBY"
+        self.vision_signal = "Awaiting camera input"
+        self._deck_buttons = []
 
         self._theme = _load_theme_name()
         self.col    = dict(THEMES[self._theme])
@@ -180,8 +183,13 @@ class KaizumiUI:
                             bg=self.col["bg"], highlightthickness=0)
         self.bg.place(x=0, y=0)
 
+        # ── JARVIS command deck ────────────────────────────────────────────
+        # This is intentionally built from native Tk widgets so it remains
+        # lightweight and works together with the existing animated canvas.
+        self._build_command_deck()
+
         # ── Log area ─────────────────────────────────────────────────────────
-        LW = int(W * 0.72)
+        LW = max(320, W - 440) if W >= 900 else int(W * 0.72)
         LH = int(H * 0.11)
         LOG_Y = H - LH - int(H * 0.13)
         self.log_frame = tk.Frame(self.root, bg=self.col["panel"],
@@ -212,6 +220,7 @@ class KaizumiUI:
 
         # Re-layout widgets when the window is resized
         self.root.bind("<Configure>", self._on_configure)
+        self._relayout()
 
         # ── API key ───────────────────────────────────────────────────────────
         self._api_key_ready = self._api_keys_exist()
@@ -248,6 +257,7 @@ class KaizumiUI:
         self.log_text.tag_config("err", foreground=self.col["red"])
         self._draw_mute_button()
         self._refresh_input_style()
+        self._apply_deck_theme()
 
     def _refresh_input_style(self):
         try:
@@ -262,6 +272,102 @@ class KaizumiUI:
                                      highlightbackground=self.col["mid"])
         except Exception:
             pass
+
+    def _build_command_deck(self):
+        """Build the live control surface around the central Kaizumi core."""
+        self._left_deck = tk.Frame(self.root, bg=self.col["panel"],
+                                   highlightbackground=self.col["mid"], highlightthickness=1)
+        self._right_deck = tk.Frame(self.root, bg=self.col["panel"],
+                                    highlightbackground=self.col["mid"], highlightthickness=1)
+        self._deck_title(self._left_deck, "COMMAND DECK", self.col["pri"])
+        self._deck_title(self._right_deck, "VISION DECK", self.col["acc2"])
+
+        self._deck_label(self._left_deck, "QUICK ACTIONS")
+        for label, command in [
+            ("DAILY BRIEFING", "give me my daily briefing"),
+            ("SYSTEM STATUS", "show system status"),
+            ("READ SCREEN", "read my screen"),
+            ("FOCUS MODE", "start focus mode"),
+        ]:
+            self._deck_button(self._left_deck, label, command)
+
+        self._deck_label(self._right_deck, "CAMERA CONTROL")
+        for label, mode in [("GESTURE CONTROL", "gesture"), ("AIR MOUSE", "air_mouse"),
+                            ("VOLUME HAND", "volume"), ("POSTURE", "posture"),
+                            ("MOTION WATCH", "motion")]:
+            self._deck_button(self._right_deck, label, f"start vision {mode}", mode)
+        self._deck_button(self._right_deck, "STOP VISION", "stop vision", "STANDBY")
+        self._deck_label(self._right_deck, "ONE-SHOT SCANS")
+        for label, command in [("SNAPSHOT", "take a camera snapshot"),
+                                ("FACE COUNT", "count faces in front of the camera"),
+                                ("READ QR", "read a QR code with the camera")]:
+            self._deck_button(self._right_deck, label, command)
+        self._vision_status = tk.Label(self._right_deck, text="● STANDBY", anchor="w",
+                                       bg=self.col["panel"], fg=self.col["green"],
+                                       font=("Consolas", 9, "bold"))
+        self._vision_status.pack(fill="x", padx=12, pady=(10, 8))
+        self._deck_label(self._right_deck, "LOCAL CV MODULES")
+        for text in ("HAND LANDMARKS   READY", "POSE ESTIMATION   READY", "QR / FACE SCAN   READY"):
+            self._deck_label(self._right_deck, text, compact=True)
+        self._vision_signal_label = tk.Label(self._right_deck, text=self.vision_signal,
+                                              anchor="w", justify="left", wraplength=170,
+                                              bg=self.col["panel"], fg=self.col["text"],
+                                              font=("Consolas", 8))
+        self._vision_signal_label.pack(fill="x", padx=12, pady=(10, 12))
+
+    def _deck_title(self, parent, text, color):
+        tk.Label(parent, text=text, anchor="w", bg=self.col["panel"], fg=color,
+                 font=("Consolas", 10, "bold")).pack(fill="x", padx=12, pady=(12, 8))
+
+    def _deck_label(self, parent, text, compact=False):
+        tk.Label(parent, text=text, anchor="w", bg=self.col["panel"], fg=self.col["dim"],
+                 font=("Consolas", 8 if compact else 8, "bold")).pack(fill="x", padx=12,
+                 pady=(5 if compact else 10, 3))
+
+    def _deck_button(self, parent, text, command, mode=None):
+        btn = tk.Button(parent, text="▸  " + text, anchor="w", command=lambda: self._deck_command(command, mode),
+                        bg=self.col["input"], fg=self.col["text"], activebackground=self.col["pri"],
+                        activeforeground=self.col["bg"], relief="flat", borderwidth=0,
+                        highlightthickness=1, highlightbackground=self.col["dim"],
+                        font=("Consolas", 8, "bold"), cursor="hand2")
+        btn.pack(fill="x", padx=10, pady=3, ipady=5)
+        self._deck_buttons.append(btn)
+
+    def _deck_command(self, command, mode=None):
+        self.vision_mode = (mode or self.vision_mode).upper()
+        self._safe_ui(self._refresh_deck_status)
+        self.write_log("SYS: Command deck → " + command)
+        if self.on_text_command:
+            threading.Thread(target=self.on_text_command, args=(command,), daemon=True).start()
+
+    def _refresh_deck_status(self):
+        if hasattr(self, "_vision_status"):
+            color = self.col["green"] if self.vision_mode != "STANDBY" else self.col["dim"]
+            self._vision_status.configure(text="● " + self.vision_mode, fg=color,
+                                          bg=self.col["panel"])
+        if hasattr(self, "_vision_signal_label"):
+            self._vision_signal_label.configure(text=self.vision_signal,
+                                                bg=self.col["panel"], fg=self.col["text"])
+
+    def set_vision_signal(self, text: str):
+        """Publish the latest local CV observation to the command deck."""
+        self.vision_signal = str(text or "Awaiting camera input")[:120]
+        self._safe_ui(self._refresh_deck_status)
+
+    def _apply_deck_theme(self):
+        for deck in (getattr(self, "_left_deck", None), getattr(self, "_right_deck", None)):
+            if deck is not None:
+                deck.configure(bg=self.col["panel"], highlightbackground=self.col["mid"])
+                for widget in deck.winfo_children():
+                    try:
+                        widget.configure(bg=self.col["panel"])
+                    except tk.TclError:
+                        pass
+        for btn in getattr(self, "_deck_buttons", []):
+            btn.configure(bg=self.col["input"], fg=self.col["text"],
+                          activebackground=self.col["pri"], activeforeground=self.col["bg"],
+                          highlightbackground=self.col["dim"])
+        self._refresh_deck_status()
 
     # ── Persona / connection (called from main.py) ───────────────────────────
 
@@ -384,7 +490,7 @@ class KaizumiUI:
 
     def _relayout(self):
         W, H = self.W, self.H
-        LW = int(W * 0.72)
+        LW = max(320, W - 440) if W >= 900 else int(W * 0.72)
         LH = int(H * 0.11)
         LOG_Y = H - LH - int(H * 0.13)
         self.log_frame.place(x=(W - LW) // 2, y=LOG_Y, width=LW, height=LH)
@@ -398,6 +504,12 @@ class KaizumiUI:
         self._send_btn.place(x=x0 + INP_W + CLR_W + 8, y=INPUT_Y,
                              width=BTN_W, height=46)
         self._mute_canvas.place(x=18, y=H - 70)
+        if W >= 900:
+            self._left_deck.place(x=16, y=96, width=184, height=max(260, H - 210))
+            self._right_deck.place(x=W - 216, y=96, width=200, height=max(260, H - 210))
+        else:
+            self._left_deck.place_forget()
+            self._right_deck.place_forget()
 
     def _on_configure(self, event=None):
         if event is None or event.widget is not self.root:
