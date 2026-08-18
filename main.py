@@ -1363,6 +1363,11 @@ for _decl in TOOL_DECLARATIONS:
              "description": ("One-time token from a blocked response "
                              "([token: ...]). Copy it exactly when re-invoking "
                              "after user approval.")}
+        _decl.setdefault("parameters", {}).setdefault("properties", {})[
+            "face_verify"
+        ] = {"type": "BOOLEAN",
+             "description": ("Optional: require local face identity verification "
+                             "before executing this confirmed action.")}
 
 
 class KaizumiLive:
@@ -1855,6 +1860,7 @@ class KaizumiLive:
         )
         confirm = bool(args.pop(CONFIRM_PARAM, False))
         confirm_token = str(args.pop(CONFIRM_TOKEN_PARAM, ""))
+        face_verify = bool(args.pop("face_verify", False))
         if needs_confirmation(name, args, confirm=confirm, confirm_token=confirm_token):
             token = issue_confirmation_token(name, args) if not confirm else ""
             print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
@@ -1865,6 +1871,19 @@ class KaizumiLive:
                 + (f"\n[token: {token}]" if token else ""),
                 error_kind="confirmation",
             )
+
+        if face_verify:
+            identity = await run_sync_tool(
+                lambda: vision_gesture({"action": "verify_identity"}, player=self.ui),
+                "face_identity_verification",
+                timeout=30,
+            )
+            if not identity.ok or not str(identity.content).lower().startswith("identity verified:"):
+                return ToolResult(
+                    ok=False,
+                    content="Face identity verification failed. The requested action was not executed.",
+                    error_kind="identity",
+                )
 
         entry = self._tool_handlers.get(name)
         if entry is None:
