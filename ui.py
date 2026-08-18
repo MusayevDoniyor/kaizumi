@@ -167,6 +167,10 @@ class KaizumiUI:
         self.on_text_command = None
         self.vision_mode = "STANDBY"
         self.vision_signal = "Awaiting camera input"
+        self.vision_preview_open = False
+        self._preview_window = None
+        self._preview_label = None
+        self._preview_image = None
         self._deck_buttons = []
 
         self._theme = _load_theme_name()
@@ -292,6 +296,7 @@ class KaizumiUI:
             self._deck_button(self._left_deck, label, command)
 
         self._deck_label(self._right_deck, "CAMERA CONTROL")
+        self._deck_button(self._right_deck, "OPEN CAMERA PREVIEW", "__open_preview__")
         for label, mode in [("GESTURE CONTROL", "gesture"), ("OBJECT DETECTION", "objects"),
                             ("AIR MOUSE", "air_mouse"),
                             ("VOLUME HAND", "volume"), ("POSTURE", "posture"),
@@ -336,6 +341,9 @@ class KaizumiUI:
         self._deck_buttons.append(btn)
 
     def _deck_command(self, command, mode=None):
+        if command == "__open_preview__":
+            self.open_vision_preview()
+            return
         self.vision_mode = (mode or self.vision_mode).upper()
         self._safe_ui(self._refresh_deck_status)
         self.write_log("SYS: Command deck → " + command)
@@ -367,6 +375,51 @@ class KaizumiUI:
                 f"{count}× {label}" for label, count in counts.items()
             )
             self.set_vision_signal(summary)
+
+    def open_vision_preview(self):
+        """Open a live preview fed by the existing vision camera thread."""
+        if self._preview_window is not None and self._preview_window.winfo_exists():
+            self._preview_window.lift()
+            return
+        win = tk.Toplevel(self.root)
+        win.title("Kaizumi Vision Preview · Privacy Blur")
+        win.configure(bg=self.col["bg"])
+        win.geometry("700x560")
+        win.resizable(True, True)
+        label = tk.Label(win, text="Waiting for camera frames…", bg=self.col["bg"],
+                         fg=self.col["text"], font=("Consolas", 11))
+        label.pack(fill="both", expand=True, padx=12, pady=12)
+        self._preview_window = win
+        self._preview_label = label
+        self.vision_preview_open = True
+
+        def close():
+            self.vision_preview_open = False
+            self._preview_window = None
+            self._preview_label = None
+            win.destroy()
+        win.protocol("WM_DELETE_WINDOW", close)
+
+    def set_vision_frame(self, frame):
+        """Receive one privacy-filtered BGR frame from the camera thread."""
+        if not self.vision_preview_open or frame is None:
+            return
+        self._safe_ui(self._render_vision_frame, frame)
+
+    def _render_vision_frame(self, frame):
+        if self._preview_label is None:
+            return
+        try:
+            import cv2
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(rgb)
+            target_w = max(320, self._preview_label.winfo_width() - 24)
+            target_h = max(240, self._preview_label.winfo_height() - 24)
+            image.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+            self._preview_image = ImageTk.PhotoImage(image)
+            self._preview_label.configure(image=self._preview_image, text="")
+        except Exception:
+            pass
 
     def _apply_deck_theme(self):
         for deck in (getattr(self, "_left_deck", None), getattr(self, "_right_deck", None)):

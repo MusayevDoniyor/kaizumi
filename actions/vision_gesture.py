@@ -28,6 +28,7 @@ import numpy as np
 from vision.camera_manager import CameraConfig, CameraManager
 from vision.object_detector import DetectorConfig, ObjectDetector
 from vision.ocr_engine import CodeReader, OCREngine
+from vision.face_privacy import FacePrivacyProcessor
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -149,6 +150,7 @@ class VisionService:
         )
         self._ocr_engine = OCREngine()
         self._code_reader = CodeReader()
+        self._privacy_processor = FacePrivacyProcessor()
 
     # ── Setup / control ───────────────────────────────────────────────────────
     def configure(self, player=None, speak=None):
@@ -238,6 +240,12 @@ class VisionService:
                 time.sleep(0.02)
                 continue
             self._ts = packet.sequence
+            if self._player and getattr(self._player, "vision_preview_open", False):
+                safe_frame, _ = self._privacy_processor.blur(packet.frame)
+                try:
+                    self._player.set_vision_frame(safe_frame)
+                except Exception:
+                    pass
             with self._lock:
                 mode = self._mode
             try:
