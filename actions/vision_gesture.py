@@ -268,6 +268,11 @@ class VisionService:
                     self._player.set_vision_frame(safe_frame)
                 except Exception:
                     pass
+            if self._player and getattr(self._player, "arcade_open", False):
+                try:
+                    self._player.set_arcade_frame(packet.frame)
+                except Exception:
+                    pass
             if self._recorder.is_recording:
                 safe_frame, _ = self._privacy_processor.blur(packet.frame)
                 self._recorder.write(safe_frame)
@@ -339,6 +344,8 @@ class VisionService:
         point = not pinch and fingers == 1 and hand[HAND_INDEX_TIP].y < hand[HAND_WRIST].y
         name  = _gesture_name(fingers, pinch, point)
         self._tell(f"Gesture detected: {name}.", cooldown=2.0)
+        if self._player and hasattr(self._player, "set_arcade_signal"):
+            self._player.set_arcade_signal(name, idx.x)
 
     def _handle_air_mouse(self, hands):
         pyautogui = _get_pyautogui()

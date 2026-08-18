@@ -19,6 +19,7 @@ from .event_store import VisionEventStore
 from .runtime import RuntimeConfig, PerformanceMeter, select_device
 from .voice_identity import VoiceProfileStore, VoiceIdentityMatcher
 from .workflows import VisionWorkflowRouter
+from .arcade import ArcadeState, VisionArcade
 
 __all__ = [
     "CameraManager", "CameraConfig", "FramePacket", "VisionEvent",
@@ -36,4 +37,5 @@ __all__ = [
     "OpenCVFaceVerifier",
     "VisionEventStore", "RuntimeConfig", "PerformanceMeter", "select_device",
     "VoiceProfileStore", "VoiceIdentityMatcher", "VisionWorkflowRouter",
+    "ArcadeState", "VisionArcade",
 ]

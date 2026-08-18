@@ -4,6 +4,7 @@ from collections import deque
 from PIL import Image, ImageTk, ImageDraw
 import sys
 from pathlib import Path
+from vision.arcade import VisionArcade
 
 
 def get_base_dir():
@@ -171,6 +172,11 @@ class KaizumiUI:
         self._preview_window = None
         self._preview_label = None
         self._preview_image = None
+        self.arcade_open = False
+        self._arcade_window = None
+        self._arcade_label = None
+        self._arcade_image = None
+        self._arcade = VisionArcade()
         self._deck_buttons = []
 
         self._theme = _load_theme_name()
@@ -287,6 +293,7 @@ class KaizumiUI:
         self._deck_title(self._right_deck, "VISION DECK", self.col["acc2"])
 
         self._deck_label(self._left_deck, "QUICK ACTIONS")
+        self._deck_button(self._left_deck, "VISION ARCADE", "__open_arcade__")
         for label, command in [
             ("DAILY BRIEFING", "give me my daily briefing"),
             ("SYSTEM STATUS", "show system status"),
@@ -347,6 +354,9 @@ class KaizumiUI:
     def _deck_command(self, command, mode=None):
         if command == "__open_preview__":
             self.open_vision_preview()
+            return
+        if command == "__open_arcade__":
+            self.open_vision_arcade()
             return
         if command in ("__record_start__", "__record_stop__"):
             self.write_log("SYS: " + ("Recording requested." if command == "__record_start__" else "Recording stop requested."))
@@ -415,6 +425,78 @@ class KaizumiUI:
         if not self.vision_preview_open or frame is None:
             return
         self._safe_ui(self._render_vision_frame, frame)
+
+    def open_vision_arcade(self):
+        if self._arcade_window is not None and self._arcade_window.winfo_exists():
+            self._arcade_window.lift()
+            return
+        win = tk.Toplevel(self.root)
+        win.title("Kaizumi Vision Arcade · Local CV")
+        win.configure(bg=self.col["bg"])
+        win.geometry("900x680")
+        toolbar = tk.Frame(win, bg=self.col["panel"])
+        toolbar.pack(fill="x", padx=10, pady=10)
+        for label, game in [("FACE FILTER", "face_filter"),
+                            ("GESTURE PONG", "gesture_pong"),
+                            ("ROCK PAPER SCISSORS", "rps")]:
+            tk.Button(toolbar, text=label, command=lambda g=game: self._start_arcade_game(g),
+                      bg=self.col["input"], fg=self.col["text"], activebackground=self.col["pri"],
+                      activeforeground=self.col["bg"], relief="flat", font=("Consolas", 9, "bold"),
+                      cursor="hand2").pack(side="left", padx=4, ipady=5)
+        label = tk.Label(win, text="Waiting for camera frames…", bg=self.col["bg"],
+                         fg=self.col["text"], font=("Consolas", 11))
+        label.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self._arcade_window, self._arcade_label = win, label
+        self.arcade_open = True
+        self._start_arcade_game("face_filter")
+        if self.on_text_command:
+            threading.Thread(target=self.on_text_command,
+                             args=("start vision gesture",), daemon=True).start()
+
+        def close():
+            self.arcade_open = False
+            self._arcade_window = None
+            self._arcade_label = None
+            self._arcade.stop()
+            win.destroy()
+        win.protocol("WM_DELETE_WINDOW", close)
+
+    def _start_arcade_game(self, game):
+        self._arcade.start(game)
+        self.write_log("SYS: Vision Arcade → " + game)
+
+    def set_arcade_signal(self, gesture: str, x: float = 0.5):
+        if not self.arcade_open:
+            return
+        self._safe_ui(self._apply_arcade_signal, gesture, x)
+
+    def _apply_arcade_signal(self, gesture, x):
+        self._arcade.on_gesture(gesture, x)
+
+    def set_arcade_frame(self, frame):
+        if not self.arcade_open or frame is None:
+            return
+        self._safe_ui(self._render_arcade_frame, frame)
+
+    def _render_arcade_frame(self, frame):
+        if self._arcade_label is None:
+            return
+        try:
+            import cv2
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(rgb)
+            target_w = max(420, self._arcade_label.winfo_width() - 24)
+            target_h = max(300, self._arcade_label.winfo_height() - 24)
+            image.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+            draw = ImageDraw.Draw(image)
+            state = self._arcade.state
+            draw.rectangle((10, 10, image.width - 10, 62), outline="#00d4ff", width=2)
+            draw.text((24, 22), f"{state.game.upper()}   SCORE {state.score}   LIVES {state.lives}", fill="#8ffcff")
+            draw.text((24, 42), state.message, fill="#ffcc00")
+            self._arcade_image = ImageTk.PhotoImage(image)
+            self._arcade_label.configure(image=self._arcade_image, text="")
+        except Exception:
+            pass
 
     def _render_vision_frame(self, frame):
         if self._preview_label is None:
