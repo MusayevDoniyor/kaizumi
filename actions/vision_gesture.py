@@ -26,6 +26,7 @@ import threading
 import cv2
 import numpy as np
 from vision.camera_manager import CameraConfig, CameraManager
+from vision.object_detector import DetectorConfig, ObjectDetector
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -62,7 +63,7 @@ def _get_pyautogui():
 BASE_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE_DIR / "models"
 
-MODES = {"gesture", "air_mouse", "volume", "motion", "posture"}
+MODES = {"gesture", "air_mouse", "volume", "motion", "posture", "objects"}
 
 # ── Landmark indices ──────────────────────────────────────────────────────────
 HAND_INDEX_TIP  = 8
@@ -142,6 +143,9 @@ class VisionService:
         self._faces     = None
         self._prev_gray = None
         self._ready     = threading.Event()
+        self._object_detector = ObjectDetector(
+            DetectorConfig(model_path=MODELS_DIR / "yolo11n.pt")
+        )
 
     # ── Setup / control ───────────────────────────────────────────────────────
     def configure(self, player=None, speak=None):
@@ -152,7 +156,7 @@ class VisionService:
         if _get_mp() is None:
             return "MediaPipe is not installed. Run: pip install mediapipe"
         if mode not in MODES:
-            return f"Unknown vision mode: {mode}. Use: gesture, air_mouse, volume, motion, posture, focus"
+            return f"Unknown vision mode: {mode}. Use: gesture, air_mouse, volume, motion, posture, objects"
         with self._lock:
             already = self._running
             self._mode = mode
@@ -266,6 +270,8 @@ class VisionService:
             self._handle_posture(pose)
         elif mode == "motion":
             self._handle_motion(frame)
+        elif mode == "objects":
+            self._handle_objects(frame, ts)
 
     # ── Mode handlers ─────────────────────────────────────────────────────────
     def _tell(self, text: str, cooldown: float = 1.5):
@@ -365,6 +371,19 @@ class VisionService:
         motion_pct = (thresh > 0).mean()
         if motion_pct > 0.15:
             self._tell(f"Motion detected, sir. Coverage {motion_pct * 100:.0f}%.", cooldown=3.0)
+
+    def _handle_objects(self, frame, ts):
+        events = self._object_detector.detect(frame, timestamp=time.time())
+        if events:
+            counts = {}
+            for event in events:
+                counts[event.label] = counts.get(event.label, 0) + 1
+            summary = ", ".join(f"{count} {label}" for label, count in counts.items())
+            self._tell(f"Objects detected: {summary}.", cooldown=2.0)
+            if self._player and hasattr(self._player, "set_vision_detections"):
+                self._player.set_vision_detections(events)
+        elif self._object_detector.error and self._player and hasattr(self._player, "set_vision_signal"):
+            self._player.set_vision_signal("OBJECT DETECTION: " + self._object_detector.error)
 
     # ── One-shot actions ──────────────────────────────────────────────────────
     def _open_camera(self):

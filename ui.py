@@ -292,7 +292,8 @@ class KaizumiUI:
             self._deck_button(self._left_deck, label, command)
 
         self._deck_label(self._right_deck, "CAMERA CONTROL")
-        for label, mode in [("GESTURE CONTROL", "gesture"), ("AIR MOUSE", "air_mouse"),
+        for label, mode in [("GESTURE CONTROL", "gesture"), ("OBJECT DETECTION", "objects"),
+                            ("AIR MOUSE", "air_mouse"),
                             ("VOLUME HAND", "volume"), ("POSTURE", "posture"),
                             ("MOTION WATCH", "motion")]:
             self._deck_button(self._right_deck, label, f"start vision {mode}", mode)
@@ -353,6 +354,18 @@ class KaizumiUI:
         """Publish the latest local CV observation to the command deck."""
         self.vision_signal = str(text or "Awaiting camera input")[:120]
         self._safe_ui(self._refresh_deck_status)
+
+    def set_vision_detections(self, events):
+        """Show a compact object summary from the active detector."""
+        counts = {}
+        for event in events or []:
+            label = getattr(event, "label", "object")
+            counts[label] = counts.get(label, 0) + 1
+        if counts:
+            summary = "OBJECTS: " + ", ".join(
+                f"{count}× {label}" for label, count in counts.items()
+            )
+            self.set_vision_signal(summary)
 
     def _apply_deck_theme(self):
         for deck in (getattr(self, "_left_deck", None), getattr(self, "_right_deck", None)):
