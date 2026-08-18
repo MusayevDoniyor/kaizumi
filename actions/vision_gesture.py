@@ -539,12 +539,21 @@ class VisionService:
             return f"Scene understanding failed: {e}"
 
     def _capture_frame(self):
+        frames = self._capture_frames(1)
+        return frames[-1] if frames else None
+
+    def _capture_frames(self, count: int = 5):
         cap = self._open_camera()
         for _ in range(5):
             cap.read()
-        ok, frame = cap.read()
+        frames = []
+        for _ in range(max(1, count)):
+            ok, frame = cap.read()
+            if ok:
+                frames.append(frame)
+            time.sleep(0.04)
         cap.release()
-        return frame if ok else None
+        return frames
 
     def register_face(self, name: str) -> str:
         if not str(name).strip():
@@ -561,12 +570,18 @@ class VisionService:
         return f"Face profile registered for {name}."
 
     def identify_face(self) -> str:
-        frame = self._capture_frame()
         if self._opencv_identity.load():
-            verified, name, score = self._opencv_identity.verify(frame)
-            if verified:
-                return f"Identity verified: {name} (match {score:.2f}), sir."
+            best = (False, None, None)
+            for frame in self._capture_frames(5):
+                result = self._opencv_identity.verify(frame)
+                if result[2] is not None and (best[2] is None or result[2] > best[2]):
+                    best = result
+                if result[0]:
+                    return f"Identity verified: {result[1]} (match {result[2]:.2f}), sir."
+            if best[1] is not None:
+                return f"Identity verification failed: best match {best[1]} scored {best[2]:.2f}, sir."
             return "Identity verification failed: face not recognized, sir."
+        frame = self._capture_frame()
         embedding = self._face_recognition.embedding_from_frame(frame)
         if embedding is None:
             return self._face_recognition.error or "Face recognition is unavailable, sir."
