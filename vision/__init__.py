@@ -10,6 +10,8 @@ from .segmentation import SegmentationConfig, ForegroundSegmenter
 from .understanding import SceneCaptioner, VisualQuestionAnswering
 from .anomaly_monitor import AnomalyConfig, AnomalyMonitor
 from .image_enhancement import SuperResolution, ImageColorizer
+from .face_recognition import FaceProfile, FaceProfileStore, FaceRecognitionEngine
+from .multimodal import MultimodalVision
 
 __all__ = [
     "CameraManager", "CameraConfig", "FramePacket", "VisionEvent",
@@ -21,4 +23,6 @@ __all__ = [
     "SceneCaptioner", "VisualQuestionAnswering",
     "AnomalyConfig", "AnomalyMonitor",
     "SuperResolution", "ImageColorizer",
+    "FaceProfile", "FaceProfileStore", "FaceRecognitionEngine",
+    "MultimodalVision",
 ]

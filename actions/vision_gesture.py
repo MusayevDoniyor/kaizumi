@@ -32,6 +32,8 @@ from vision.face_privacy import FacePrivacyProcessor
 from vision.segmentation import ForegroundSegmenter
 from vision.understanding import SceneCaptioner, VisualQuestionAnswering
 from vision.anomaly_monitor import AnomalyMonitor
+from vision.face_recognition import FaceProfileStore, FaceRecognitionEngine
+from vision.multimodal import MultimodalVision
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -158,6 +160,9 @@ class VisionService:
         self._captioner = SceneCaptioner()
         self._vqa = VisualQuestionAnswering()
         self._anomaly_monitor = AnomalyMonitor()
+        self._face_profiles = FaceProfileStore(BASE_DIR / "data" / "vision" / "face_profiles.json")
+        self._face_recognition = FaceRecognitionEngine(self._face_profiles)
+        self._multimodal = MultimodalVision()
 
     # ── Setup / control ───────────────────────────────────────────────────────
     def configure(self, player=None, speak=None):
@@ -519,6 +524,34 @@ class VisionService:
         except Exception as e:
             return f"Scene understanding failed: {e}"
 
+    def _capture_frame(self):
+        cap = self._open_camera()
+        for _ in range(5):
+            cap.read()
+        ok, frame = cap.read()
+        cap.release()
+        return frame if ok else None
+
+    def register_face(self, name: str) -> str:
+        frame = self._capture_frame()
+        embedding = self._face_recognition.embedding_from_frame(frame)
+        if embedding is None:
+            return self._face_recognition.error or "Face registration is unavailable, sir."
+        self._face_profiles.add(name, embedding)
+        return f"Face profile registered for {name}."
+
+    def identify_face(self) -> str:
+        frame = self._capture_frame()
+        embedding = self._face_recognition.embedding_from_frame(frame)
+        if embedding is None:
+            return self._face_recognition.error or "Face recognition is unavailable, sir."
+        name = self._face_recognition.identify(embedding)
+        return f"I recognize {name}, sir." if name else "Unknown face, sir."
+
+    def ask_multimodal(self, question: str = "Describe this scene.") -> str:
+        frame = self._capture_frame()
+        return self._multimodal.ask(frame, question)
+
     def snapshot(self, question: str = "") -> str:
         mp = _get_mp()
         if mp is None:
@@ -573,7 +606,7 @@ def vision_gesture(
     speak=None,
 ) -> str:
     """Control the full-body vision service.
-    action: start | stop | face_count | qr | ocr | background_remove | describe | vqa | snapshot | status
+    action: start | stop | face_count | qr | ocr | background_remove | describe | vqa | register_face | identify_face | multimodal | snapshot | status
     mode (for start): gesture | air_mouse | volume | motion | posture | focus"""
     params     = parameters or {}
     action     = str(params.get("action", "status")).lower().strip()
@@ -597,6 +630,12 @@ def vision_gesture(
         return _service.describe_scene()
     if action in ("vqa", "ask_scene", "visual_question"):
         return _service.describe_scene(str(params.get("text", "")))
+    if action in ("register_face", "enroll_face"):
+        return _service.register_face(str(params.get("name", "")))
+    if action in ("identify_face", "recognize_face"):
+        return _service.identify_face()
+    if action in ("multimodal", "vision_ai"):
+        return _service.ask_multimodal(str(params.get("text", "Describe this scene.")))
     if action == "snapshot":
         return _service.snapshot(params.get("text", ""))
     if action in ("status", "info"):

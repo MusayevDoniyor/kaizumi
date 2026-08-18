@@ -879,13 +879,15 @@ TOOL_DECLARATIONS = [
             "'posture' reports body pose (arms raised, leaning); 'objects' runs YOLO object detection. "
             "One-shot actions: 'face_count' counts people, 'qr' reads a QR code, 'ocr' reads text, "
             "'background_remove' saves a transparent subject cutout, 'describe' captions the scene, "
-            "'vqa' answers a question about the scene, 'snapshot' describes what's on camera. "
+            "'vqa' answers a question about the scene, 'register_face' enrolls a local face profile, "
+            "'identify_face' recognizes an enrolled face, 'multimodal' asks the configured vision model, "
+            "'snapshot' describes what's on camera. "
             "Use when the user asks about gestures, wants hand control, or camera actions."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action": {"type": "STRING", "description": "start | stop | face_count | qr | ocr | background_remove | describe | vqa | snapshot | status"},
+                "action": {"type": "STRING", "description": "start | stop | face_count | qr | ocr | background_remove | describe | vqa | register_face | identify_face | multimodal | snapshot | status"},
                 "mode":   {"type": "STRING", "description": "gesture | air_mouse | volume | motion | posture | objects (for start)"},
                 "text":   {"type": "STRING", "description": "Optional question for snapshot"}
             },
