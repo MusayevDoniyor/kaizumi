@@ -14,6 +14,7 @@ from .face_recognition import FaceProfile, FaceProfileStore, FaceRecognitionEngi
 from .multimodal import MultimodalVision
 from .recording import VisionRecorder
 from .model_manager import ModelManager, ModelSpec
+from .opencv_face_verifier import OpenCVFaceVerifier
 
 __all__ = [
     "CameraManager", "CameraConfig", "FramePacket", "VisionEvent",
@@ -28,4 +29,5 @@ __all__ = [
     "FaceProfile", "FaceProfileStore", "FaceRecognitionEngine",
     "MultimodalVision",
     "VisionRecorder", "ModelManager", "ModelSpec",
+    "OpenCVFaceVerifier",
 ]

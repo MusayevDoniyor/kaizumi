@@ -35,6 +35,7 @@ from vision.anomaly_monitor import AnomalyMonitor
 from vision.face_recognition import FaceProfileStore, FaceRecognitionEngine
 from vision.multimodal import MultimodalVision
 from vision.recording import VisionRecorder
+from vision.opencv_face_verifier import OpenCVFaceVerifier
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -163,6 +164,11 @@ class VisionService:
         self._anomaly_monitor = AnomalyMonitor()
         self._face_profiles = FaceProfileStore(BASE_DIR / "data" / "vision" / "face_profiles.json")
         self._face_recognition = FaceRecognitionEngine(self._face_profiles)
+        self._opencv_identity = OpenCVFaceVerifier(
+            MODELS_DIR / "face_detection_yunet_2023mar.onnx",
+            MODELS_DIR / "face_recognition_sface_2021dec.onnx",
+            self._face_profiles,
+        )
         self._multimodal = MultimodalVision()
         self._recorder = VisionRecorder()
 
@@ -539,6 +545,10 @@ class VisionService:
 
     def register_face(self, name: str) -> str:
         frame = self._capture_frame()
+        if self._opencv_identity.load():
+            if self._opencv_identity.enroll(name, frame):
+                return f"Face profile registered for {name} using local OpenCV verification."
+            return self._opencv_identity.error or "Face registration failed, sir."
         embedding = self._face_recognition.embedding_from_frame(frame)
         if embedding is None:
             return self._face_recognition.error or "Face registration is unavailable, sir."
@@ -547,6 +557,11 @@ class VisionService:
 
     def identify_face(self) -> str:
         frame = self._capture_frame()
+        if self._opencv_identity.load():
+            verified, name, score = self._opencv_identity.verify(frame)
+            if verified:
+                return f"Identity verified: {name} (match {score:.2f}), sir."
+            return "Identity verification failed: face not recognized, sir."
         embedding = self._face_recognition.embedding_from_frame(frame)
         if embedding is None:
             return self._face_recognition.error or "Face recognition is unavailable, sir."
@@ -655,7 +670,7 @@ def vision_gesture(
         return _service.describe_scene(str(params.get("text", "")))
     if action in ("register_face", "enroll_face"):
         return _service.register_face(str(params.get("name", "")))
-    if action in ("identify_face", "recognize_face"):
+    if action in ("identify_face", "recognize_face", "verify_identity"):
         return _service.identify_face()
     if action in ("multimodal", "vision_ai"):
         return _service.ask_multimodal(str(params.get("text", "Describe this scene.")))
