@@ -33,3 +33,13 @@ def test_shape_creator_and_floor_lava_use_cv_signals():
     game.start("floor_lava")
     game.on_pose(True)
     assert game.state.score == 1
+
+
+def test_orb_hunt_rewards_hits_and_tracks_combo():
+    game = VisionArcade(rng=__import__("random").Random(1))
+    game.start("orb_hunt")
+    game.state.target_x = 0.5
+    game.on_gesture("pointing", 0.5)
+    assert game.state.score == 1
+    assert game.state.combo == 1
+    assert game.state.level == 1

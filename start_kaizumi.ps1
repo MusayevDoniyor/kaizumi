@@ -12,8 +12,9 @@ foreach ($candidate in @(
     "pythonw.exe",
     "python.exe"
 )) {
-    if (Get-Command $candidate -ErrorAction SilentlyContinue) {
-        $PY = (Get-Command $candidate).Source
+    $resolved = Get-Command $candidate -ErrorAction SilentlyContinue
+    if ($resolved) {
+        $PY = $resolved.Source
         break
     }
 }
@@ -31,6 +32,6 @@ Start-Sleep -Seconds 2
 Start-Process -FilePath $PY `
     -ArgumentList @("-u", (Join-Path $ROOT "main.py"), "--remote") `
     -WorkingDirectory $ROOT `
-    -WindowStyle Minimized
+    -WindowStyle Hidden
 
 Write-Output "Kaizumi started (single instance)."

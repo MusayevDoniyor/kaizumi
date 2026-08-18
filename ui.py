@@ -219,7 +219,8 @@ class KaizumiUI:
         self.log_text.tag_config("err", foreground=self.col["red"])
 
         # ── Keyboard input ────────────────────────────────────────────────────
-        INPUT_Y = LOG_Y + LH + 6
+        # Keep the footer controls below the input even on compact windows.
+        INPUT_Y = min(LOG_Y + LH + 6, H - 112)
         self._build_input_bar(LW, INPUT_Y)
 
         # ── Mute button ───────────────────────────────────────────────────────
@@ -445,6 +446,7 @@ class KaizumiUI:
         toolbar.pack(fill="x", padx=10, pady=10)
         for label, game in [("FACE FILTER", "face_filter"),
                             ("GESTURE PONG", "gesture_pong"),
+                            ("ORB HUNT", "orb_hunt"),
                             ("ROCK PAPER SCISSORS", "rps"),
                             ("SHAPE CREATOR", "shape_creator"),
                             ("FLOOR IS LAVA", "floor_lava"),
@@ -543,6 +545,13 @@ class KaizumiUI:
                     draw.rectangle((cx - 45, cy - 45, cx + 45, cy + 45), outline="#00d4ff", width=5)
                 else:
                     draw.polygon((cx, cy - 55, cx - 55, cy + 45, cx + 55, cy + 45), outline="#00d4ff")
+            elif state.game == "orb_hunt":
+                cx, cy = int(state.target_x * image.width), int(image.height * 0.55)
+                radius = max(24, 48 - state.level * 2)
+                draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius),
+                             fill="#ff4fd8", outline="#fff3ff", width=4)
+                draw.ellipse((cx - radius // 3, cy - radius // 3,
+                              cx + radius // 3, cy + radius // 3), fill="#ffe66d")
             self._arcade_image = ImageTk.PhotoImage(image)
             self._arcade_label.configure(image=self._arcade_image, text="")
         except Exception:
@@ -740,9 +749,10 @@ class KaizumiUI:
         self._clear_btn.place(x=x0 + INP_W + 4, y=INPUT_Y, width=CLR_W, height=46)
         self._send_btn.place(x=x0 + INP_W + CLR_W + 8, y=INPUT_Y,
                              width=BTN_W, height=46)
-        self._mute_canvas.place(x=18, y=H - 70)
+        footer_y = min(H - 38, INPUT_Y + 52)
+        self._mute_canvas.place(x=18, y=footer_y)
         if getattr(self, "_silent_canvas", None) is not None:
-            self._silent_canvas.place(x=136, y=H - 70)
+            self._silent_canvas.place(x=136, y=footer_y)
         if W >= 900:
             self._left_deck.place(x=16, y=96, width=184, height=max(260, H - 210))
             self._right_deck.place(x=W - 216, y=96, width=200, height=max(260, H - 210))
