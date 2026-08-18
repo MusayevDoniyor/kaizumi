@@ -319,8 +319,9 @@ kaizumi/
   Without them, Kaizumi runs fine — only the Bluetooth channel is disabled.
 - **Voice/tool errors are spoken aloud** — read the log file in `logs/` for
   details (one file per run).
-- **Slow startup:** heavy ML packages (mediapipe, openwakeword) load on first
-  launch; subsequent runs are faster.
+- **Slow startup:** heavy ML packages (mediapipe, openwakeword) are imported
+  lazily — they load only when the matching feature (vision / wake word) is
+  first used, so startup stays fast.
 
 ---
 
