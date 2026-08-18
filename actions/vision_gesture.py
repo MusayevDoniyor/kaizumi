@@ -30,6 +30,8 @@ from vision.object_detector import DetectorConfig, ObjectDetector
 from vision.ocr_engine import CodeReader, OCREngine
 from vision.face_privacy import FacePrivacyProcessor
 from vision.segmentation import ForegroundSegmenter
+from vision.understanding import SceneCaptioner, VisualQuestionAnswering
+from vision.anomaly_monitor import AnomalyMonitor
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -153,6 +155,9 @@ class VisionService:
         self._code_reader = CodeReader()
         self._privacy_processor = FacePrivacyProcessor()
         self._segmenter = ForegroundSegmenter()
+        self._captioner = SceneCaptioner()
+        self._vqa = VisualQuestionAnswering()
+        self._anomaly_monitor = AnomalyMonitor()
 
     # ── Setup / control ───────────────────────────────────────────────────────
     def configure(self, player=None, speak=None):
@@ -388,13 +393,17 @@ class VisionService:
     def _handle_objects(self, frame, ts):
         events = self._object_detector.detect(frame, timestamp=time.time())
         if events:
+            anomalies = self._anomaly_monitor.observe(events)
             counts = {}
             for event in events:
                 counts[event.label] = counts.get(event.label, 0) + 1
             summary = ", ".join(f"{count} {label}" for label, count in counts.items())
             self._tell(f"Objects detected: {summary}.", cooldown=2.0)
+            if anomalies:
+                self._tell("Anomaly detected: scene changed.", cooldown=4.0)
             if self._player and hasattr(self._player, "set_vision_detections"):
                 self._player.set_vision_detections(events)
+                self._player.set_vision_signal(self._captioner.caption(events))
         elif self._object_detector.error and self._player and hasattr(self._player, "set_vision_signal"):
             self._player.set_vision_signal("OBJECT DETECTION: " + self._object_detector.error)
 
@@ -491,6 +500,25 @@ class VisionService:
         except Exception as e:
             return f"Background removal failed: {e}"
 
+    def describe_scene(self, question: str = "") -> str:
+        """Capture one frame and answer from local detector/OCR evidence."""
+        try:
+            cap = self._open_camera()
+            for _ in range(5):
+                cap.read()
+            ok, frame = cap.read()
+            cap.release()
+            if not ok:
+                return "Could not capture camera frame, sir."
+            events = self._object_detector.detect(frame, timestamp=time.time())
+            events.extend(self._ocr_engine.extract(frame))
+            events.extend(self._privacy_processor.detect(frame))
+            if question:
+                return self._vqa.answer(question, events)
+            return self._captioner.caption(events)
+        except Exception as e:
+            return f"Scene understanding failed: {e}"
+
     def snapshot(self, question: str = "") -> str:
         mp = _get_mp()
         if mp is None:
@@ -545,7 +573,7 @@ def vision_gesture(
     speak=None,
 ) -> str:
     """Control the full-body vision service.
-    action: start | stop | face_count | qr | ocr | background_remove | snapshot | status
+    action: start | stop | face_count | qr | ocr | background_remove | describe | vqa | snapshot | status
     mode (for start): gesture | air_mouse | volume | motion | posture | focus"""
     params     = parameters or {}
     action     = str(params.get("action", "status")).lower().strip()
@@ -565,6 +593,10 @@ def vision_gesture(
         return _service.read_text()
     if action in ("background_remove", "remove_background", "cutout"):
         return _service.remove_background_snapshot()
+    if action in ("describe", "caption", "scene"):
+        return _service.describe_scene()
+    if action in ("vqa", "ask_scene", "visual_question"):
+        return _service.describe_scene(str(params.get("text", "")))
     if action == "snapshot":
         return _service.snapshot(params.get("text", ""))
     if action in ("status", "info"):

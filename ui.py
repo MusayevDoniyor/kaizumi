@@ -308,7 +308,8 @@ class KaizumiUI:
                                 ("FACE COUNT", "count faces in front of the camera"),
                                 ("READ QR", "read a QR code with the camera"),
                                 ("READ TEXT", "read text with the camera"),
-                                ("REMOVE BACKGROUND", "remove the background from the camera subject")]:
+                                ("REMOVE BACKGROUND", "remove the background from the camera subject"),
+                                ("DESCRIBE SCENE", "describe everything visible to the camera")]:
             self._deck_button(self._right_deck, label, command)
         self._vision_status = tk.Label(self._right_deck, text="● STANDBY", anchor="w",
                                        bg=self.col["panel"], fg=self.col["green"],
