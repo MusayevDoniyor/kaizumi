@@ -36,6 +36,7 @@ from vision.face_recognition import FaceProfileStore, FaceRecognitionEngine
 from vision.multimodal import MultimodalVision
 from vision.recording import VisionRecorder
 from vision.opencv_face_verifier import OpenCVFaceVerifier
+from vision.event_store import VisionEventStore
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -162,6 +163,7 @@ class VisionService:
         self._captioner = SceneCaptioner()
         self._vqa = VisualQuestionAnswering()
         self._anomaly_monitor = AnomalyMonitor()
+        self._event_store = VisionEventStore(BASE_DIR / "data" / "vision" / "events.db")
         self._face_profiles = FaceProfileStore(BASE_DIR / "data" / "vision" / "face_profiles.json")
         self._face_recognition = FaceRecognitionEngine(self._face_profiles)
         self._opencv_identity = OpenCVFaceVerifier(
@@ -410,6 +412,7 @@ class VisionService:
         events = self._object_detector.detect(frame, timestamp=time.time())
         if events:
             anomalies = self._anomaly_monitor.observe(events)
+            self._event_store.add_many(events + anomalies)
             counts = {}
             for event in events:
                 counts[event.label] = counts.get(event.label, 0) + 1

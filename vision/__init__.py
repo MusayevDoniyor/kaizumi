@@ -15,6 +15,10 @@ from .multimodal import MultimodalVision
 from .recording import VisionRecorder
 from .model_manager import ModelManager, ModelSpec
 from .opencv_face_verifier import OpenCVFaceVerifier
+from .event_store import VisionEventStore
+from .runtime import RuntimeConfig, PerformanceMeter, select_device
+from .voice_identity import VoiceProfileStore, VoiceIdentityMatcher
+from .workflows import VisionWorkflowRouter
 
 __all__ = [
     "CameraManager", "CameraConfig", "FramePacket", "VisionEvent",
@@ -30,4 +34,6 @@ __all__ = [
     "MultimodalVision",
     "VisionRecorder", "ModelManager", "ModelSpec",
     "OpenCVFaceVerifier",
+    "VisionEventStore", "RuntimeConfig", "PerformanceMeter", "select_device",
+    "VoiceProfileStore", "VoiceIdentityMatcher", "VisionWorkflowRouter",
 ]

@@ -11,6 +11,8 @@ from .ocr_engine import CodeReader, OCREngine
 from .face_privacy import FacePrivacyProcessor
 from .understanding import SceneCaptioner
 from .anomaly_monitor import AnomalyMonitor
+from .event_store import VisionEventStore
+from .workflows import VisionWorkflowRouter
 from .vision_events import VisionEvent
 
 
@@ -29,13 +31,17 @@ class VisionPipeline:
                  ocr: OCREngine | None = None, codes: CodeReader | None = None,
                  privacy: FacePrivacyProcessor | None = None,
                  captioner: SceneCaptioner | None = None,
-                 anomaly: AnomalyMonitor | None = None):
+                 anomaly: AnomalyMonitor | None = None,
+                 event_store: VisionEventStore | None = None,
+                 workflows: VisionWorkflowRouter | None = None):
         self.detector = detector
         self.ocr = ocr
         self.codes = codes
         self.privacy = privacy
         self.captioner = captioner
         self.anomaly = anomaly
+        self.event_store = event_store
+        self.workflows = workflows
         self.last_frame: Any = None
         self.last_caption: str | None = None
         self.on_event = on_event
@@ -57,6 +63,11 @@ class VisionPipeline:
             events.extend(self.anomaly.observe(events))
         if self.captioner is not None:
             self.last_caption = self.captioner.caption(events)
+        if self.event_store is not None:
+            self.event_store.add_many(events)
+        if self.workflows is not None:
+            for event in events:
+                self.workflows.dispatch(event)
         self.last_frame = frame
         result = PipelineResult(packet.sequence, packet.timestamp, events)
         self.last_result = result
