@@ -162,12 +162,6 @@ PHASE_IDLE, PHASE_LISTENING, PHASE_THINKING, PHASE_SPEAKING = (
 MAX_ROLLING_CHARS = 16000
 
 
-def _ensure_audio_deps():
-    if sd is not None:
-        return True
-    return False
-
-
 def _ensure_core_deps():
     missing = []
     if sd is None:
@@ -1360,6 +1354,12 @@ for _decl in TOOL_DECLARATIONS:
         ] = {"type": "BOOLEAN",
              "description": ("Must be TRUE only after the user explicitly "
                              "approves this action.")}
+        _decl.setdefault("parameters", {}).setdefault("properties", {})[
+            "confirm_token"
+        ] = {"type": "STRING",
+             "description": ("One-time token from a blocked response "
+                             "([token: ...]). Copy it exactly when re-invoking "
+                             "after user approval.")}
 
 
 class KaizumiLive:
@@ -1572,13 +1572,6 @@ class KaizumiLive:
     def _current_phase(self) -> str:
         with self._phase_lock:
             return self._phase
-
-    def force_reset(self):
-        """Single-owner guarantee: any failure path can force-clear the audio
-        turn; set_speaking(False) alone is not enough in edge cases."""
-        with self._speaking_lock:
-            self._is_speaking = False
-        self._set_phase(PHASE_LISTENING)
 
     def _schedule_session_reload(self):
         """Mode/voice changed — close the live session shortly so run() reconnects
@@ -1853,14 +1846,20 @@ class KaizumiLive:
             return ToolResult(ok=False, content=blocked, error_kind="loop")
 
         # ── Safety gate: high-risk actions need explicit user confirmation ──
-        from safety import needs_confirmation, describe, CONFIRM_MESSAGE, CONFIRM_PARAM
+        from safety import (
+            needs_confirmation, describe, CONFIRM_MESSAGE,
+            CONFIRM_PARAM, CONFIRM_TOKEN_PARAM, issue_confirmation_token,
+        )
         confirm = bool(args.pop(CONFIRM_PARAM, False))
-        if needs_confirmation(name, args, confirm=confirm):
+        confirm_token = str(args.pop(CONFIRM_TOKEN_PARAM, ""))
+        if needs_confirmation(name, args, confirm=confirm, confirm_token=confirm_token):
+            token = issue_confirmation_token(name, args) if not confirm else ""
             print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
             return ToolResult(
                 ok=True,
                 content=CONFIRM_MESSAGE.format(desc=describe(name, args),
-                                               param=CONFIRM_PARAM),
+                                               param=CONFIRM_PARAM)
+                + (f"\n[token: {token}]" if token else ""),
                 error_kind="confirmation",
             )
 
@@ -2020,8 +2019,14 @@ class KaizumiLive:
             )
 
         # ── Safety gate: high-risk actions need explicit user confirmation ──
-        from safety import needs_confirmation, describe, CONFIRM_MESSAGE, CONFIRM_PARAM, sanitize
-        if needs_confirmation(name, args, confirm=bool(args.pop(CONFIRM_PARAM, False))):
+        from safety import (
+            needs_confirmation, describe, CONFIRM_MESSAGE,
+            CONFIRM_PARAM, CONFIRM_TOKEN_PARAM, issue_confirmation_token, sanitize,
+        )
+        confirm = bool(args.pop(CONFIRM_PARAM, False))
+        confirm_token = str(args.pop(CONFIRM_TOKEN_PARAM, ""))
+        if needs_confirmation(name, args, confirm=confirm, confirm_token=confirm_token):
+            token = issue_confirmation_token(name, args) if not confirm else ""
             print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
             log_tool(name, args, error="confirmation required")
             if not self.ui.muted:
@@ -2029,7 +2034,8 @@ class KaizumiLive:
             return types.FunctionResponse(
                 id=fc.id, name=name,
                 response={"result": CONFIRM_MESSAGE.format(
-                    desc=describe(name, args), param=CONFIRM_PARAM)}
+                    desc=describe(name, args), param=CONFIRM_PARAM)
+                    + (f"\n[token: {token}]" if token else "")}
             )
 
         self.broadcast_remote({"type": "tool", "name": name, "status": "start",

@@ -6,11 +6,6 @@ import subprocess
 import platform
 from pathlib import Path
 
-import pyautogui
-import numpy as np
-import cv2
-from PIL import ImageGrab
-
 try:
     import requests
     from bs4 import BeautifulSoup
@@ -133,6 +128,7 @@ def open_browser():
 
     display_name = _get_default_browser_display_name()
     print(f"[YouTube] 🔍 Opening via Windows Search: '{display_name}'")
+    import pyautogui
     pyautogui.press("win")
     time.sleep(0.5)
     pyautogui.write(display_name, interval=0.04)
@@ -141,6 +137,9 @@ def open_browser():
     time.sleep(2.5)
 
 def find_video_thumbnails() -> list[tuple[int, int]]:
+    import numpy as np
+    import cv2
+    from PIL import ImageGrab
     try:
         screenshot = ImageGrab.grab()
         img        = np.array(screenshot)
@@ -389,6 +388,7 @@ def _handle_play(parameters: dict, player) -> str:
     search_query = query.replace(" ", "+")
     url = f"https://www.youtube.com/results?search_query={search_query}"
 
+    import pyautogui
     pyautogui.hotkey("ctrl", "l")
     time.sleep(0.3)
     pyautogui.write(url, interval=0.02)

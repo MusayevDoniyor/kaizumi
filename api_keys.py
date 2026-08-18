@@ -144,19 +144,6 @@ def add_key(key: str) -> int:
     return len(keys)
 
 
-def status() -> str:
-    keys = get_all_keys()
-    st   = _load_state()
-    now  = time.time()
-    lines = [f"Configured keys: {len(keys)}"]
-    for k in keys:
-        entry = st.get(_hash(k))
-        state = "cooled" if (entry and entry.get("until", 0) > now) else "ready"
-        tail  = k[:8] + "..." + k[-4:]
-        lines.append(f"  {tail}  -> {state}")
-    return "\n".join(lines)
-
-
 async def aio_generate(model, contents, config=None, api_version=None):
     """Generate content, automatically retrying across all keys on 429."""
     from google import genai

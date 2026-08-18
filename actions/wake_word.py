@@ -12,11 +12,20 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 
-try:
-    from openwakeword.model import Model
-    _OWW_OK = True
-except ImportError:
-    _OWW_OK = False
+_OWW = None  # None=not checked yet, False=unavailable, Model class=available
+
+
+def _get_oww():
+    """Lazily import openwakeword; returns the Model class or None."""
+    global _OWW
+    if _OWW is None:
+        try:
+            from openwakeword.model import Model
+            _OWW = Model
+        except ImportError:
+            _OWW = False
+    return _OWW or None
+
 
 try:
     import pyaudio
@@ -51,14 +60,15 @@ class WakeWordService:
 
     @property
     def available(self) -> bool:
-        return _OWW_OK and self._model is not None
+        return _get_oww() is not None and self._model is not None
 
     def load(self) -> bool:
         """Load the model so predictions work WITHOUT opening a mic stream.
         Used by the phone bridge, which feeds PCM chunks manually."""
         if self._model is not None:
             return True
-        if not _OWW_OK:
+        Model = _get_oww()
+        if Model is None:
             return False
         candidate = str(MODELS_DIR / self._model_file)
         if not Path(candidate).exists():
@@ -75,7 +85,8 @@ class WakeWordService:
         self._on_detect = on_detect
 
     def start(self) -> str:
-        if not _OWW_OK:
+        Model = _get_oww()
+        if Model is None:
             return "openwakeword is not installed. Run: pip install openwakeword"
         if self._running:
             return "Wake word is already listening, sir."

@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import ctypes
 import tempfile
-import pyautogui
 from pathlib import Path
 from datetime import datetime
 
@@ -111,6 +110,11 @@ def _execute_generated_code(code: str) -> str:
     safe, reason = _is_safe_code(code)
     if not safe:
         return f"⛔ Blocked for safety: {reason}"
+
+    try:
+        import pyautogui
+    except ImportError:
+        return "pyautogui is not installed, sir."
 
     allowed_globals = {
         "pyautogui": pyautogui,

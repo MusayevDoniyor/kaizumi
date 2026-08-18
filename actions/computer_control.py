@@ -26,13 +26,21 @@ import subprocess
 import platform
 from pathlib import Path
 
-try:
-    import pyautogui
-    pyautogui.FAILSAFE = True
-    pyautogui.PAUSE    = 0.05
-    _PYAUTOGUI = True
-except ImportError:
-    _PYAUTOGUI = False
+_PG_MOD = None
+
+
+def _pg():
+    """Lazily import pyautogui; returns the module or None."""
+    global _PG_MOD
+    if _PG_MOD is None:
+        try:
+            import pyautogui
+            pyautogui.FAILSAFE = True
+            pyautogui.PAUSE    = 0.05
+            _PG_MOD = pyautogui
+        except ImportError:
+            _PG_MOD = False
+    return _PG_MOD or None
 
 try:
     import pyperclip
@@ -70,7 +78,7 @@ def _load_user_profile() -> dict:
 
 
 def _ensure_pyautogui():
-    if not _PYAUTOGUI:
+    if _pg() is None:
         raise RuntimeError(
             "PyAutoGUI not installed. Run: pip install pyautogui"
         )
@@ -153,7 +161,7 @@ def _type_text(text: str, interval: float = 0.03) -> str:
     """Types text at the current cursor position."""
     _ensure_pyautogui()
     time.sleep(0.3)
-    pyautogui.typewrite(text, interval=interval)
+    _pg().typewrite(text, interval=interval)
     return f"Typed: {text[:50]}{'...' if len(text) > 50 else ''}"
 
 
@@ -167,33 +175,33 @@ def _click(x: int = None, y: int = None, button: str = "left",
 
     if image:
         try:
-            loc = pyautogui.locateCenterOnScreen(image, confidence=0.8)
+            loc = _pg().locateCenterOnScreen(image, confidence=0.8)
             if loc:
-                pyautogui.click(loc.x, loc.y, button=button, clicks=clicks)
+                _pg().click(loc.x, loc.y, button=button, clicks=clicks)
                 return f"Clicked image: {image}"
             return f"Image not found on screen: {image}"
         except Exception as e:
             return f"Image click failed: {e}"
 
     if x is not None and y is not None:
-        pyautogui.click(x, y, button=button, clicks=clicks)
+        _pg().click(x, y, button=button, clicks=clicks)
         return f"Clicked ({x}, {y}) with {button} button"
 
-    pyautogui.click(button=button, clicks=clicks)
+    _pg().click(button=button, clicks=clicks)
     return f"Clicked at current position"
 
 
 def _hotkey(*keys) -> str:
     """Presses a key combination. E.g. hotkey('ctrl', 'c')"""
     _ensure_pyautogui()
-    pyautogui.hotkey(*keys)
+    _pg().hotkey(*keys)
     return f"Hotkey: {'+'.join(keys)}"
 
 
 def _press(key: str) -> str:
     """Presses a single key."""
     _ensure_pyautogui()
-    pyautogui.press(key)
+    _pg().press(key)
     return f"Pressed: {key}"
 
 
@@ -202,24 +210,24 @@ def _scroll(direction: str = "down", amount: int = 3) -> str:
     _ensure_pyautogui()
     clicks = amount if direction in ("up", "right") else -amount
     if direction in ("up", "down"):
-        pyautogui.scroll(clicks)
+        _pg().scroll(clicks)
     else:
-        pyautogui.hscroll(clicks)
+        _pg().hscroll(clicks)
     return f"Scrolled {direction} {amount} times"
 
 
 def _move_mouse(x: int, y: int, duration: float = 0.3) -> str:
     """Moves mouse to coordinates."""
     _ensure_pyautogui()
-    pyautogui.moveTo(x, y, duration=duration)
+    _pg().moveTo(x, y, duration=duration)
     return f"Mouse moved to ({x}, {y})"
 
 
 def _drag(x1: int, y1: int, x2: int, y2: int, duration: float = 0.5) -> str:
     """Drags from (x1,y1) to (x2,y2)."""
     _ensure_pyautogui()
-    pyautogui.drag(x1 - pyautogui.position()[0], y1 - pyautogui.position()[1])
-    pyautogui.dragTo(x2, y2, duration=duration)
+    _pg().drag(x1 - _pg().position()[0], y1 - _pg().position()[1])
+    _pg().dragTo(x2, y2, duration=duration)
     return f"Dragged from ({x1},{y1}) to ({x2},{y2})"
 
 
@@ -247,7 +255,7 @@ def _screenshot(save_path: str = None) -> str:
     _ensure_pyautogui()
     if not save_path:
         save_path = str(Path.home() / "Desktop" / "screenshot.png")
-    img = pyautogui.screenshot()
+    img = _pg().screenshot()
     img.save(save_path)
     return f"Screenshot saved: {save_path}"
 
@@ -264,7 +272,7 @@ def _wait_for_image(image_path: str, timeout: int = 10) -> str:
     start = time.time()
     while time.time() - start < timeout:
         try:
-            loc = pyautogui.locateCenterOnScreen(image_path, confidence=0.8)
+            loc = _pg().locateCenterOnScreen(image_path, confidence=0.8)
             if loc:
                 return f"Image found at ({loc.x}, {loc.y})"
         except Exception:
@@ -276,7 +284,7 @@ def _wait_for_image(image_path: str, timeout: int = 10) -> str:
 def _get_screen_size() -> str:
     """Returns current screen resolution."""
     _ensure_pyautogui()
-    w, h = pyautogui.size()
+    w, h = _pg().size()
     return f"{w}x{h}"
 
 
@@ -359,10 +367,10 @@ def _smart_type(text: str, clear_first: bool = True) -> str:
     if len(text) > 20 and _PYPERCLIP:
         pyperclip.copy(text)
         time.sleep(0.1)
-        pyautogui.hotkey("ctrl", "v")
+        _pg().hotkey("ctrl", "v")
         return f"Smart-typed (clipboard): {text[:50]}"
     else:
-        pyautogui.typewrite(text, interval=0.04)
+        _pg().typewrite(text, interval=0.04)
         return f"Smart-typed: {text[:50]}"
 
 
@@ -384,8 +392,8 @@ def _analyze_screen_for_element(description: str) -> tuple[int, int] | None:
 
 
         _ensure_pyautogui()
-        w, h  = pyautogui.size()
-        img   = pyautogui.screenshot()
+        w, h  = _pg().size()
+        img   = _pg().screenshot()
         buf   = io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)

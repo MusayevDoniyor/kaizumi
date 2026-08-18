@@ -400,15 +400,3 @@ def clear_memory(category: str = "") -> str:
         return f"Category '{cat}' not found. Categories: " + ", ".join(memory.keys())
     save_memory(_empty_memory())
     return "All memory cleared."
-
-
-def memory_stats() -> str:
-    """Short summary of how much is stored, per category."""
-    memory = load_memory()
-    parts = []
-    for cat, entries in memory.items():
-        if isinstance(entries, dict) and entries:
-            parts.append(f"{cat}: {len(entries)}")
-    if not parts:
-        return "No stored memories yet."
-    return "Stored memory — " + ", ".join(parts) + "."

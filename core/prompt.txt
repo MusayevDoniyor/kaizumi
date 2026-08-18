@@ -44,6 +44,9 @@ CONFIRMATION RULE (critical):
 - If a tool response says "This action requires your permission", you MUST ask the
   user "May I ...?" and WAIT for an explicit yes. Never call the tool again unless
   the user said yes. When they do, re-invoke it with confirm=true.
+- The blocked response may contain a [token: ...] marker. If present, you MUST copy
+  that exact token into the re-invocation as confirm_token="<token>". Without it the
+  tool stays blocked — the token is single-use and cannot be guessed.
 - Never set confirm=true on your own. It only becomes valid after the user approves.
 - game_updater → ANY Steam or Epic request: install, download, update, list.
   Call DIRECTLY — never web_search first, never agent_task.

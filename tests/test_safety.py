@@ -56,9 +56,58 @@ class ConfirmationTest(unittest.TestCase):
     def test_low_does_not_need_confirmation(self):
         self.assertFalse(safety.needs_confirmation("web_search", {"query": "x"}))
 
-    def test_confirm_flag_bypasses(self):
-        self.assertFalse(
+    def test_confirm_flag_alone_does_not_bypass(self):
+        # confirm=true with no valid token no longer bypasses the gate.
+        self.assertTrue(
             safety.needs_confirmation("cmd_control", {"command": "dir"}, confirm=True)
+        )
+
+
+class ConfirmationTokenTest(unittest.TestCase):
+    """Technical enforcement: confirm=true alone is not enough; a one-time
+    token issued for the exact blocked call is required."""
+
+    def test_confirm_without_token_is_blocked(self):
+        # confirm=true with no token must NOT bypass the gate.
+        self.assertTrue(
+            safety.needs_confirmation("cmd_control", {"command": "dir"},
+                                      confirm=True, confirm_token="")
+        )
+        self.assertTrue(
+            safety.needs_confirmation("cmd_control", {"command": "dir"},
+                                      confirm=True, confirm_token="garbage")
+        )
+
+    def test_issued_token_works_once(self):
+        tok = safety.issue_confirmation_token("cmd_control", {"command": "dir"})
+        # First redeem succeeds (and consumes the token).
+        self.assertFalse(
+            safety.needs_confirmation("cmd_control", {"command": "dir"},
+                                      confirm=True, confirm_token=tok)
+        )
+        # Second use fails — token is single-use.
+        self.assertTrue(
+            safety.needs_confirmation("cmd_control", {"command": "dir"},
+                                      confirm=True, confirm_token=tok)
+        )
+
+    def test_token_bound_to_exact_call(self):
+        tok = safety.issue_confirmation_token("cmd_control", {"command": "dir"})
+        # Different args -> blocked.
+        self.assertTrue(
+            safety.needs_confirmation("cmd_control", {"command": "format c:"},
+                                      confirm=True, confirm_token=tok)
+        )
+        # Different tool -> blocked.
+        self.assertTrue(
+            safety.needs_confirmation("desktop_control", {"action": "reset"},
+                                      confirm=True, confirm_token=tok)
+        )
+
+    def test_low_risk_never_asks_for_token(self):
+        self.assertFalse(
+            safety.needs_confirmation("web_search", {"query": "x"},
+                                      confirm=True, confirm_token="nope")
         )
 
 

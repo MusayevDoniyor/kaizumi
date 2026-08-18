@@ -14,13 +14,21 @@ import sys
 import platform
 from pathlib import Path
 
-try:
-    import pyautogui
-    pyautogui.FAILSAFE = True
-    pyautogui.PAUSE    = 0.05
-    _PYAUTOGUI = True
-except ImportError:
-    _PYAUTOGUI = False
+_PG_MOD = None
+
+
+def _pg():
+    """Lazily import pyautogui; returns the module or None."""
+    global _PG_MOD
+    if _PG_MOD is None:
+        try:
+            import pyautogui
+            pyautogui.FAILSAFE = True
+            pyautogui.PAUSE    = 0.05
+            _PG_MOD = pyautogui
+        except ImportError:
+            _PG_MOD = False
+    return _PG_MOD or None
 
 try:
     import pyperclip
@@ -46,7 +54,7 @@ def _get_api_key() -> str:
 
 def volume_up():
     if _OS == "Windows":
-        for _ in range(5): pyautogui.press("volumeup")
+        for _ in range(5): _pg().press("volumeup")
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e", "set volume output volume (output volume of (get volume settings) + 10)"])
     else:
@@ -54,7 +62,7 @@ def volume_up():
 
 def volume_down():
     if _OS == "Windows":
-        for _ in range(5): pyautogui.press("volumedown")
+        for _ in range(5): _pg().press("volumedown")
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e", "set volume output volume (output volume of (get volume settings) - 10)"])
     else:
@@ -62,7 +70,7 @@ def volume_down():
 
 def volume_mute():
     if _OS == "Windows":
-        pyautogui.press("volumemute")
+        _pg().press("volumemute")
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e", "set volume with output muted"])
     else:
@@ -148,10 +156,10 @@ def app_volume(app_name: str, level: int | None = None) -> str:
     except Exception as e:
         return f"App volume control failed: {e}"
 
-def media_play_pause():     pyautogui.press("playpause")
-def media_next():           pyautogui.press("nexttrack")
-def media_prev():           pyautogui.press("prevtrack")
-def media_stop():           pyautogui.press("stop")
+def media_play_pause():     _pg().press("playpause")
+def media_next():           _pg().press("nexttrack")
+def media_prev():           _pg().press("prevtrack")
+def media_stop():           _pg().press("stop")
 
 def brightness_up():
     if _OS == "Windows":
@@ -165,7 +173,7 @@ def brightness_up():
     else:
         subprocess.run(["brightnessctl", "set", "+10%"])
         return
-    pyautogui.hotkey("win", "a")
+    _pg().hotkey("win", "a")
     time.sleep(0.3)
 
 def brightness_down():
@@ -180,7 +188,7 @@ def brightness_down():
     else:
         subprocess.run(["brightnessctl", "set", "10%-"])
         return
-    pyautogui.hotkey("win", "a")
+    _pg().hotkey("win", "a")
     time.sleep(0.3)
 
 def brightness_set(percent: int):
@@ -198,58 +206,58 @@ def brightness_set(percent: int):
 
 def close_app():
     if _OS == "Darwin":
-        pyautogui.hotkey("command", "q")
+        _pg().hotkey("command", "q")
     else:
-        pyautogui.hotkey("alt", "f4")
+        _pg().hotkey("alt", "f4")
 
 def close_window():
     if _OS == "Darwin":
-        pyautogui.hotkey("command", "w")
+        _pg().hotkey("command", "w")
     else:
-        pyautogui.hotkey("ctrl", "w")
+        _pg().hotkey("ctrl", "w")
 
 def full_screen():
     if _OS == "Darwin":
-        pyautogui.hotkey("ctrl", "command", "f")
+        _pg().hotkey("ctrl", "command", "f")
     else:
-        pyautogui.press("f11")
+        _pg().press("f11")
 
 def minimize_window():
     if _OS == "Darwin":
-        pyautogui.hotkey("command", "m")
+        _pg().hotkey("command", "m")
     else:
-        pyautogui.hotkey("win", "down")
+        _pg().hotkey("win", "down")
 
 def maximize_window():
     if _OS == "Darwin":
         subprocess.run(["osascript", "-e",
             'tell application "System Events" to keystroke "f" using {control down, command down}'])
     else:
-        pyautogui.hotkey("win", "up")
+        _pg().hotkey("win", "up")
 
 def snap_left():
-    if _OS == "Windows": pyautogui.hotkey("win", "left")
+    if _OS == "Windows": _pg().hotkey("win", "left")
 
 def snap_right():
-    if _OS == "Windows": pyautogui.hotkey("win", "right")
+    if _OS == "Windows": _pg().hotkey("win", "right")
 
 def switch_window():
     if _OS == "Darwin":
-        pyautogui.hotkey("command", "tab")
+        _pg().hotkey("command", "tab")
     else:
-        pyautogui.hotkey("alt", "tab")
+        _pg().hotkey("alt", "tab")
 
 def show_desktop():
     if _OS == "Darwin":
-        pyautogui.hotkey("fn", "f11")
+        _pg().hotkey("fn", "f11")
     elif _OS == "Windows":
-        pyautogui.hotkey("win", "d")
+        _pg().hotkey("win", "d")
     else:
-        pyautogui.hotkey("super", "d")
+        _pg().hotkey("super", "d")
 
 def open_task_manager():
     if _OS == "Windows":
-        pyautogui.hotkey("ctrl", "shift", "esc")
+        _pg().hotkey("ctrl", "shift", "esc")
     elif _OS == "Darwin":
         subprocess.Popen(["open", "-a", "Activity Monitor"])
     else:
@@ -257,57 +265,57 @@ def open_task_manager():
 
 def open_task_view():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "tab")
+        _pg().hotkey("win", "tab")
 
 
 def focus_search():
-    if _OS == "Darwin": pyautogui.hotkey("command", "l")
-    else:               pyautogui.hotkey("ctrl", "l")
+    if _OS == "Darwin": _pg().hotkey("command", "l")
+    else:               _pg().hotkey("ctrl", "l")
 
-def pause_video():      pyautogui.press("space")
+def pause_video():      _pg().press("space")
 def refresh_page():
-    if _OS == "Darwin": pyautogui.hotkey("command", "r")
-    else:               pyautogui.press("f5")
+    if _OS == "Darwin": _pg().hotkey("command", "r")
+    else:               _pg().press("f5")
 
 def close_tab():
-    if _OS == "Darwin": pyautogui.hotkey("command", "w")
-    else:               pyautogui.hotkey("ctrl", "w")
+    if _OS == "Darwin": _pg().hotkey("command", "w")
+    else:               _pg().hotkey("ctrl", "w")
 
 def new_tab():
-    if _OS == "Darwin": pyautogui.hotkey("command", "t")
-    else:               pyautogui.hotkey("ctrl", "t")
+    if _OS == "Darwin": _pg().hotkey("command", "t")
+    else:               _pg().hotkey("ctrl", "t")
 
 def next_tab():
-    if _OS == "Darwin": pyautogui.hotkey("command", "shift", "bracketright")
-    else:               pyautogui.hotkey("ctrl", "tab")
+    if _OS == "Darwin": _pg().hotkey("command", "shift", "bracketright")
+    else:               _pg().hotkey("ctrl", "tab")
 
 def prev_tab():
-    if _OS == "Darwin": pyautogui.hotkey("command", "shift", "bracketleft")
-    else:               pyautogui.hotkey("ctrl", "shift", "tab")
+    if _OS == "Darwin": _pg().hotkey("command", "shift", "bracketleft")
+    else:               _pg().hotkey("ctrl", "shift", "tab")
 
 def go_back():
-    if _OS == "Darwin": pyautogui.hotkey("command", "left")
-    else:               pyautogui.hotkey("alt", "left")
+    if _OS == "Darwin": _pg().hotkey("command", "left")
+    else:               _pg().hotkey("alt", "left")
 
 def go_forward():
-    if _OS == "Darwin": pyautogui.hotkey("command", "right")
-    else:               pyautogui.hotkey("alt", "right")
+    if _OS == "Darwin": _pg().hotkey("command", "right")
+    else:               _pg().hotkey("alt", "right")
 
 def zoom_in():
-    if _OS == "Darwin": pyautogui.hotkey("command", "equal")
-    else:               pyautogui.hotkey("ctrl", "equal")
+    if _OS == "Darwin": _pg().hotkey("command", "equal")
+    else:               _pg().hotkey("ctrl", "equal")
 
 def zoom_out():
-    if _OS == "Darwin": pyautogui.hotkey("command", "minus")
-    else:               pyautogui.hotkey("ctrl", "minus")
+    if _OS == "Darwin": _pg().hotkey("command", "minus")
+    else:               _pg().hotkey("ctrl", "minus")
 
 def zoom_reset():
-    if _OS == "Darwin": pyautogui.hotkey("command", "0")
-    else:               pyautogui.hotkey("ctrl", "0")
+    if _OS == "Darwin": _pg().hotkey("command", "0")
+    else:               _pg().hotkey("ctrl", "0")
 
 def find_on_page():
-    if _OS == "Darwin": pyautogui.hotkey("command", "f")
-    else:               pyautogui.hotkey("ctrl", "f")
+    if _OS == "Darwin": _pg().hotkey("command", "f")
+    else:               _pg().hotkey("ctrl", "f")
 
 def reload_page_n(n: int):
     for _ in range(n):
@@ -315,45 +323,45 @@ def reload_page_n(n: int):
         time.sleep(0.8)
 
 
-def scroll_up(amount: int = 500):   pyautogui.scroll(amount)
-def scroll_down(amount: int = 500): pyautogui.scroll(-amount)
-def scroll_top():    pyautogui.hotkey("ctrl", "home") if _OS != "Darwin" else pyautogui.hotkey("command", "up")
-def scroll_bottom(): pyautogui.hotkey("ctrl", "end")  if _OS != "Darwin" else pyautogui.hotkey("command", "down")
-def page_up():       pyautogui.press("pageup")
-def page_down():     pyautogui.press("pagedown")
+def scroll_up(amount: int = 500):   _pg().scroll(amount)
+def scroll_down(amount: int = 500): _pg().scroll(-amount)
+def scroll_top():    _pg().hotkey("ctrl", "home") if _OS != "Darwin" else _pg().hotkey("command", "up")
+def scroll_bottom(): _pg().hotkey("ctrl", "end")  if _OS != "Darwin" else _pg().hotkey("command", "down")
+def page_up():       _pg().press("pageup")
+def page_down():     _pg().press("pagedown")
 
 
 def copy():
-    if _OS == "Darwin": pyautogui.hotkey("command", "c")
-    else:               pyautogui.hotkey("ctrl", "c")
+    if _OS == "Darwin": _pg().hotkey("command", "c")
+    else:               _pg().hotkey("ctrl", "c")
 
 def paste():
-    if _OS == "Darwin": pyautogui.hotkey("command", "v")
-    else:               pyautogui.hotkey("ctrl", "v")
+    if _OS == "Darwin": _pg().hotkey("command", "v")
+    else:               _pg().hotkey("ctrl", "v")
 
 def cut():
-    if _OS == "Darwin": pyautogui.hotkey("command", "x")
-    else:               pyautogui.hotkey("ctrl", "x")
+    if _OS == "Darwin": _pg().hotkey("command", "x")
+    else:               _pg().hotkey("ctrl", "x")
 
 def undo():
-    if _OS == "Darwin": pyautogui.hotkey("command", "z")
-    else:               pyautogui.hotkey("ctrl", "z")
+    if _OS == "Darwin": _pg().hotkey("command", "z")
+    else:               _pg().hotkey("ctrl", "z")
 
 def redo():
-    if _OS == "Darwin": pyautogui.hotkey("command", "shift", "z")
-    else:               pyautogui.hotkey("ctrl", "y")
+    if _OS == "Darwin": _pg().hotkey("command", "shift", "z")
+    else:               _pg().hotkey("ctrl", "y")
 
 def select_all():
-    if _OS == "Darwin": pyautogui.hotkey("command", "a")
-    else:               pyautogui.hotkey("ctrl", "a")
+    if _OS == "Darwin": _pg().hotkey("command", "a")
+    else:               _pg().hotkey("ctrl", "a")
 
 def save_file():
-    if _OS == "Darwin": pyautogui.hotkey("command", "s")
-    else:               pyautogui.hotkey("ctrl", "s")
+    if _OS == "Darwin": _pg().hotkey("command", "s")
+    else:               _pg().hotkey("ctrl", "s")
 
-def press_enter():  pyautogui.press("enter")
-def press_escape(): pyautogui.press("escape")
-def press_key(key: str): pyautogui.press(key)
+def press_enter():  _pg().press("enter")
+def press_escape(): _pg().press("escape")
+def press_key(key: str): _pg().press(key)
 
 def type_text(text: str, press_enter_after: bool = False):
     if not text:
@@ -363,25 +371,25 @@ def type_text(text: str, press_enter_after: bool = False):
         time.sleep(0.1)
         paste()
     else:
-        pyautogui.write(str(text), interval=0.03)
+        _pg().write(str(text), interval=0.03)
     if press_enter_after:
         time.sleep(0.1)
-        pyautogui.press("enter")
+        _pg().press("enter")
 
 def write_on_screen(text: str):
     type_text(text)
 
 def take_screenshot():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "shift", "s")
+        _pg().hotkey("win", "shift", "s")
     elif _OS == "Darwin":
-        pyautogui.hotkey("command", "shift", "3")
+        _pg().hotkey("command", "shift", "3")
     else:
-        pyautogui.hotkey("ctrl", "print_screen")
+        _pg().hotkey("ctrl", "print_screen")
 
 def lock_screen():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "l")
+        _pg().hotkey("win", "l")
     elif _OS == "Darwin":
         subprocess.run(["pmset", "displaysleepnow"])
     else:
@@ -389,7 +397,7 @@ def lock_screen():
 
 def open_system_settings():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "i")
+        _pg().hotkey("win", "i")
     elif _OS == "Darwin":
         subprocess.Popen(["open", "-a", "System Preferences"])
     else:
@@ -397,7 +405,7 @@ def open_system_settings():
 
 def open_file_explorer():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "e")
+        _pg().hotkey("win", "e")
     elif _OS == "Darwin":
         subprocess.Popen(["open", Path.home()])
     else:
@@ -405,7 +413,7 @@ def open_file_explorer():
 
 def open_run():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "r")
+        _pg().hotkey("win", "r")
 
 def sleep_display():
     if _OS == "Windows":
@@ -480,7 +488,7 @@ def dark_mode():
     else:
         subprocess.run(["gsettings", "set", "org.gnome.desktop.interface", "color-scheme", "prefer-dark"])
         return
-    pyautogui.hotkey("win", "a")
+    _pg().hotkey("win", "a")
     time.sleep(0.3)
 
 def _win_wifi_interface() -> str:
@@ -530,7 +538,7 @@ def toggle_wifi():
     else:
         subprocess.run(["nmcli", "radio", "wifi", "toggle"])
         return
-    pyautogui.hotkey("win", "a")
+    _pg().hotkey("win", "a")
     time.sleep(0.3)
 
 def _win_wifi_set(enable: bool) -> str:
@@ -781,7 +789,7 @@ def computer_settings(
         description : Kullanıcının doğal dil komutu (herhangi bir dilde)
         value       : İşleme özgü değer (ses seviyesi, yazılacak metin, tekrar sayısı vb.)
     """
-    if not _PYAUTOGUI:
+    if _pg() is None:
         return "pyautogui is not installed. Run: pip install pyautogui"
 
     params      = parameters or {}

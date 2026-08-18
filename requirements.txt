@@ -16,7 +16,6 @@ Pillow
 psutil
 comtypes
 pycaw               
-win10toast          
 send2trash
 youtube-transcript-api
 pywinauto
@@ -30,3 +29,4 @@ openpyxl
 pypdf
 google-auth-oauthlib
 google-api-python-client
+winrt

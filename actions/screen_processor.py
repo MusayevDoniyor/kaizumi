@@ -1,17 +1,10 @@
-import asyncio
-import base64
 import io
 import json
-import re
-import os
 import sys
 import time
-import threading
 import cv2
 import mss
 import mss.tools
-import sounddevice as sd
-import numpy as np
 from pathlib import Path
 
 try:
@@ -21,7 +14,6 @@ except ImportError:
     _PIL_OK = False
 
 from google import genai
-from google.genai import types
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -31,24 +23,9 @@ def get_base_dir():
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
-LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
-CHANNELS            = 1
-RECEIVE_SAMPLE_RATE = 24000
-CHUNK_SIZE          = 1024
-
 IMG_MAX_W = 640
 IMG_MAX_H = 360
 JPEG_Q    = 55
-
-SYSTEM_PROMPT = (
-    "You are Kaizumi, a sharp and efficient AI assistant. "
-    "Analyze images with technical precision and intelligence. "
-    "Help the user in a way they can understand — don't be overly complex. "
-    "Be concise, smart, and helpful. "
-    "Respond in maximum 2 short sentences. Speed is priority. "
-    "Address the user as 'sir' for a tone of respect. "
-    "Ask if the user needs any further help with their problem."
-)
 
 
 def _get_api_key() -> str:
@@ -168,167 +145,6 @@ def _analyze_image_text(image_bytes: bytes, mime_type: str, user_text: str, mode
         return f"Vision analysis failed: {e}"
 
 
-class _LiveSession:
-    def __init__(self):
-        self._loop:      asyncio.AbstractEventLoop | None = None
-        self._thread:    threading.Thread | None          = None
-        self._session                                     = None
-        self._out_queue: asyncio.Queue | None             = None
-        self._audio_in:  asyncio.Queue | None             = None
-        self._ready:     threading.Event                  = threading.Event()
-        self._player                                      = None
-        self._send_lock: asyncio.Lock | None              = None
-
-    def start(self, player=None):
-        if self._thread and self._thread.is_alive():
-            return
-        self._player = player
-        self._thread = threading.Thread(
-            target=self._run_loop, daemon=True, name="VisionSessionThread"
-        )
-        self._thread.start()
-        ok = self._ready.wait(timeout=20)
-        if not ok:
-            raise RuntimeError("Vision session did not start within 20s.")
-        print("[ScreenProcess] ✅ Vision session ready (no mic)")
-
-    def _run_loop(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._main())
-
-    async def _main(self):
-        self._out_queue = asyncio.Queue(maxsize=30)
-        self._audio_in  = asyncio.Queue()
-        self._send_lock = asyncio.Lock()
-
-        client = genai.Client(
-            api_key=_get_api_key(),
-            http_options={"api_version": "v1beta"}
-        )
-
-        config = types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
-            output_audio_transcription={},
-            system_instruction=SYSTEM_PROMPT,
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Aoede"
-                    )
-                )
-            ),
-        )
-
-        while True:
-            try:
-                print("[ScreenProcess] 🔌 Vision session connecting...")
-                async with client.aio.live.connect(model=LIVE_MODEL, config=config) as session:
-                    self._session = session
-                    self._ready.set()
-                    print("[ScreenProcess] ✅ Vision session connected")
-                    async with asyncio.TaskGroup() as tg:
-                        tg.create_task(self._send_loop())
-                        tg.create_task(self._recv_loop())
-                        tg.create_task(self._play_loop())
-            except Exception as e:
-                print(f"[ScreenProcess] ⚠️ Disconnected: {e} — reconnecting...")
-                self._session = None
-                self._ready.clear()
-                await asyncio.sleep(2)
-                self._ready.set()
-
-    async def _send_loop(self):
-        while True:
-            item = await self._out_queue.get()
-            if self._session:
-                image_bytes, mime_type, user_text = item
-                try:
-                    b64 = base64.b64encode(image_bytes).decode("utf-8")
-                    await self._session.send_client_content(
-                        turns={
-                            "parts": [
-                                {"inline_data": {"mime_type": mime_type, "data": b64}},
-                                {"text": user_text}
-                            ]
-                        },
-                        turn_complete=True
-                    )
-                    print("[ScreenProcess] ✅ Image sent")
-                except Exception as e:
-                    print(f"[ScreenProcess] ⚠️ Send error: {e}")
-
-    async def _recv_loop(self):
-        transcript_buf: list[str] = []
-        try:
-            async for response in self._session.receive():
-                if response.data:
-                    await self._audio_in.put(response.data)
-                sc = response.server_content
-                if not sc:
-                    continue
-                if sc.output_transcription and sc.output_transcription.text:
-                    chunk = sc.output_transcription.text.strip()
-                    if chunk:
-                        transcript_buf.append(chunk)
-                if sc.turn_complete:
-                    if transcript_buf and self._player:
-                        full = re.sub(r'\s+', ' ', " ".join(transcript_buf)).strip()
-                        if full:
-                            self._player.write_log(f"Kaizumi: {full}")
-                            print(f"[ScreenProcess] 💬 {full}")
-                    transcript_buf = []
-        except Exception as e:
-            print(f"[ScreenProcess] ⚠️ Recv error: {e}")
-            transcript_buf = []
-            raise
-
-    async def _play_loop(self):
-        stream = sd.RawOutputStream(
-            samplerate=RECEIVE_SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="int16",
-            blocksize=CHUNK_SIZE,
-        )
-        stream.start()
-        try:
-            while True:
-                chunk = await self._audio_in.get()
-                await asyncio.to_thread(stream.write, chunk)
-        except Exception as e:
-            print(f"[ScreenProcess] ❌ Play error: {e}")
-            raise
-        finally:
-            stream.stop()
-            stream.close()
-
-    def analyze(self, image_bytes: bytes, mime_type: str, user_text: str):
-        if not self._loop:
-            return
-        asyncio.run_coroutine_threadsafe(
-            self._out_queue.put((image_bytes, mime_type, user_text)),
-            self._loop
-        )
-
-    def is_ready(self) -> bool:
-        return self._session is not None
-
-
-_live       = _LiveSession()
-_started    = False
-_start_lock = threading.Lock()
-
-
-def _ensure_started(player=None):
-    global _started
-    with _start_lock:
-        if not _started:
-            _live.start(player=player)
-            _started = True
-        elif player is not None:
-            _live._player = player
-
-
 def screen_process(
     parameters:     dict,
     response:       str | None = None,
@@ -365,25 +181,13 @@ def screen_process(
     return answer
 
 
-def warmup_session(player=None):
-    try:
-        _ensure_started(player=player)
-    except Exception as e:
-        print(f"[ScreenProcess] ⚠️ Warmup error: {e}")
-
-
 if __name__ == "__main__":
-    print("[TEST] screen_processor.py v8 — image-only session")
+    print("[TEST] screen_processor.py v9 — image-only analysis")
     print("=" * 50)
     mode    = input("screen / camera (default: screen): ").strip().lower() or "screen"
     request = input("Question (Enter for default): ").strip() or "What do you see? Be brief."
 
-    t0 = time.perf_counter()
-    warmup_session()
-    print(f"Session ready — {time.perf_counter()-t0:.2f}s\n")
-
-    t1     = time.perf_counter()
+    t0     = time.perf_counter()
     result = screen_process({"angle": mode, "text": request}, player=None)
-    print(f"Sent — {time.perf_counter()-t1:.3f}s | audio incoming...")
-    time.sleep(8)
+    print(f"Analyzed — {time.perf_counter()-t0:.3f}s")
     print(f"\n{'✅' if result else '❌'}")

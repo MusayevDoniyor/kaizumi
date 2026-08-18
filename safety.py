@@ -13,7 +13,11 @@ ad-hoc per-tool logic. Extend TOOL_RISK / _ACTION_RISK instead of scattering
 checks across the codebase.
 """
 
+import json
+import secrets
+import threading
 from enum import IntEnum
+from typing import Any
 
 
 class Risk(IntEnum):
@@ -170,6 +174,10 @@ _ACTION_RISK = {
 # True after the user verbally approves a high-risk action.
 CONFIRM_PARAM = "confirm"
 
+# One-time token issued when a HIGH-risk call is blocked. The model must echo
+# it back on the re-invocation; it is single-use and bound to the exact call.
+CONFIRM_TOKEN_PARAM = "confirm_token"
+
 # Message returned to the model when a high-risk tool is called WITHOUT the
 # user's consent. The model must relay it, wait for an explicit yes, then
 # re-invoke the tool with confirm=true.
@@ -179,6 +187,47 @@ CONFIRM_MESSAGE = (
     "Ask the user: 'May I {desc}?' and WAIT for an explicit yes or no. "
     "Only call this tool again with {param}=true after the user says yes."
 )
+
+# ── One-time confirmation tokens (technical enforcement) ─────────────────────
+# confirm=true is NOT enough on its own: a HIGH-risk call must present a token
+# that was issued by this module when the call was first blocked. The model
+# cannot fabricate tokens (they are secrets), and each token is single-use and
+# bound to the exact (tool, sanitized args) fingerprint of the blocked call.
+
+_pending_tokens: dict[str, str] = {}
+_token_lock = threading.Lock()
+_TOKEN_TTL_SECONDS = 600
+
+
+def _fingerprint(name: str, args: dict | None) -> str:
+    """Canonical fingerprint of a blocked call, so a token can't be replayed
+    against a different tool or different arguments."""
+    safe = sanitize(name, args or {})
+    return json.dumps({"name": name, "args": safe}, sort_keys=True, default=str)
+
+
+def issue_confirmation_token(name: str, args: dict | None) -> str:
+    """Issue a single-use token authorizing THIS exact call after the user
+    approves. Called only when the gate blocks a HIGH-risk tool."""
+    token = secrets.token_urlsafe(24)
+    with _token_lock:
+        _pending_tokens[token] = _fingerprint(name, args)
+    return token
+
+
+def redeem_confirmation_token(name: str, args: dict | None, token: str) -> bool:
+    """Validate a token issued for this call and consume it (single use).
+    Returns False if the token is missing, invalid, expired, or bound to a
+    different tool/args — the call stays blocked."""
+    if not token:
+        return False
+    with _token_lock:
+        expected = _pending_tokens.pop(token, None)
+    if expected is None:
+        return False
+    if expected != _fingerprint(name, args):
+        return False
+    return True
 
 
 def classify(name: str, args: dict | None) -> Risk:
@@ -193,11 +242,19 @@ def classify(name: str, args: dict | None) -> Risk:
     return TOOL_RISK.get(name, Risk.MEDIUM)
 
 
-def needs_confirmation(name: str, args: dict | None, confirm: bool = False) -> bool:
-    """True if this call must not run until the user confirms."""
-    if confirm:
+def needs_confirmation(name: str, args: dict | None, confirm: bool = False,
+                       confirm_token: str = "") -> bool:
+    """True if this call must not run until the user confirms.
+
+    confirm=true alone does NOT bypass the gate: a valid one-time token issued
+    for THIS exact call must be presented too (technical enforcement). This
+    stops the model from fabricating a "user said yes" on its own.
+    """
+    if classify(name, args) != Risk.HIGH:
         return False
-    return classify(name, args) == Risk.HIGH
+    if confirm and redeem_confirmation_token(name, args, confirm_token):
+        return False
+    return True
 
 
 def describe(name: str, args: dict | None) -> str:

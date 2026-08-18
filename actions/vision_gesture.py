@@ -26,20 +26,36 @@ import threading
 import cv2
 import numpy as np
 
-try:
-    from mediapipe.tasks import python as mp_python
-    from mediapipe.tasks.python import vision as mp_vision
-    from mediapipe import Image as MPImage
-    from mediapipe import ImageFormat as MPImageFormat
-    _MP_OK = True
-except ImportError:
-    _MP_OK = False
+_MP = None  # None=not checked yet, False=unavailable, tuple=available
 
-try:
-    import pyautogui
-    _PYAUTOGUI = True
-except ImportError:
-    _PYAUTOGUI = False
+
+def _get_mp():
+    """Lazily import mediapipe; returns (mp_python, mp_vision, MPImage, MPImageFormat) or None."""
+    global _MP
+    if _MP is None:
+        try:
+            from mediapipe.tasks import python as mp_python
+            from mediapipe.tasks.python import vision as mp_vision
+            from mediapipe import Image as MPImage
+            from mediapipe import ImageFormat as MPImageFormat
+            _MP = (mp_python, mp_vision, MPImage, MPImageFormat)
+        except ImportError:
+            _MP = False
+    return _MP or None
+
+_PYAUTOGUI = None  # None=not checked yet, False=unavailable, True=available
+
+
+def _get_pyautogui():
+    """Lazily import pyautogui; returns the module or None."""
+    global _PYAUTOGUI
+    if _PYAUTOGUI is None:
+        try:
+            import pyautogui
+            _PYAUTOGUI = pyautogui
+        except ImportError:
+            _PYAUTOGUI = False
+    return _PYAUTOGUI or None
 
 
 BASE_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent
@@ -131,7 +147,7 @@ class VisionService:
         self._speak  = speak
 
     def start(self, mode: str = "gesture") -> str:
-        if not _MP_OK:
+        if _get_mp() is None:
             return "MediaPipe is not installed. Run: pip install mediapipe"
         if mode not in MODES:
             return f"Unknown vision mode: {mode}. Use: gesture, air_mouse, volume, motion, posture, focus"
@@ -158,6 +174,12 @@ class VisionService:
         return self._running
 
     def _build_tools(self):
+        mp = _get_mp()
+        if mp is None:
+            return False
+        mp_python, mp_vision, MPImage, MPImageFormat = mp
+        self._mp_image_factory = MPImage
+        self._mp_image_format = MPImageFormat
         base = mp_python.BaseOptions(model_asset_path=str(MODELS_DIR / "holistic_landmarker.task"))
         self._holistic = mp_vision.HolisticLandmarker.create_from_options(
             mp_vision.HolisticLandmarkerOptions(
@@ -222,7 +244,7 @@ class VisionService:
 
     def _process(self, frame, mode: str, ts: int):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = MPImage(image_format=MPImageFormat.SRGB, data=rgb)
+        mp_image = self._mp_image_factory(image_format=self._mp_image_format.SRGB, data=rgb)
 
         res = self._holistic.detect_for_video(mp_image, ts * 20)
         pose = res.pose_landmarks if res.pose_landmarks else None
@@ -271,7 +293,8 @@ class VisionService:
         self._tell(f"Gesture detected: {name}.", cooldown=2.0)
 
     def _handle_air_mouse(self, hands):
-        if not hands or not _PYAUTOGUI:
+        pyautogui = _get_pyautogui()
+        if not hands or pyautogui is None:
             return
         hand = hands[0]
         idx = hand[HAND_INDEX_TIP]
@@ -345,8 +368,10 @@ class VisionService:
         return cap
 
     def face_count(self) -> str:
-        if not _MP_OK:
+        mp = _get_mp()
+        if mp is None:
             return "MediaPipe is not installed, sir."
+        mp_python, mp_vision, MPImage, MPImageFormat = mp
         try:
             det = mp_vision.FaceDetector.create_from_options(
                 mp_vision.FaceDetectorOptions(
@@ -390,8 +415,10 @@ class VisionService:
             return f"QR reading failed: {e}"
 
     def snapshot(self, question: str = "") -> str:
-        if not _MP_OK:
+        mp = _get_mp()
+        if mp is None:
             return "MediaPipe is not installed, sir."
+        mp_python, mp_vision, MPImage, MPImageFormat = mp
         try:
             det = mp_vision.HolisticLandmarker.create_from_options(
                 mp_vision.HolisticLandmarkerOptions(

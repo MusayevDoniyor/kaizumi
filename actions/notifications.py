@@ -9,12 +9,6 @@ try:
 except ImportError:
     _WINOTIFY = False
 
-try:
-    from win10toast import ToastNotifier
-    _WIN10 = True
-except Exception:
-    _WIN10 = False
-
 
 def notify(
     parameters: dict,
@@ -43,13 +37,5 @@ def notify(
             return f"Notification sent: {message[:80]}"
         except Exception as e:
             print(f"[Notify] ⚠️ winotify failed: {e}")
-
-    if _WIN10:
-        try:
-            toaster = ToastNotifier()
-            toaster.show_toast(title, message, duration=5, threaded=True)
-            return f"Notification sent: {message[:80]}"
-        except Exception as e:
-            print(f"[Notify] ⚠️ win10toast failed: {e}")
 
     return "No notification engine available, sir. Run: pip install winotify"

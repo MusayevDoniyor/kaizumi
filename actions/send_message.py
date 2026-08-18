@@ -4,20 +4,29 @@
 # hardcoded tab/click sequences — works on any screen resolution.
 
 import time
-import pyautogui
 from pathlib import Path
 
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.08
+_pg = None
+
+
+def _get_pyautogui():
+    """Lazily import pyautogui and apply global settings once."""
+    global _pg
+    if _pg is None:
+        import pyautogui
+        pyautogui.FAILSAFE = True
+        pyautogui.PAUSE = 0.08
+        _pg = pyautogui
+    return _pg
 
 def _open_app(app_name: str) -> bool:
     """Opens an app via Windows search."""
     try:
-        pyautogui.press("win")
+        _get_pyautogui().press("win")
         time.sleep(0.4)
-        pyautogui.write(app_name, interval=0.04)
+        _get_pyautogui().write(app_name, interval=0.04)
         time.sleep(0.5)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
         time.sleep(2.0)  
         return True
     except Exception as e:
@@ -31,30 +40,30 @@ def _search_contact(contact: str, platform: str):
     Uses Ctrl+F (universal search shortcut) then types contact name.
     """
     time.sleep(0.5)
-    pyautogui.hotkey("ctrl", "f")
+    _get_pyautogui().hotkey("ctrl", "f")
     time.sleep(0.4)
-    pyautogui.hotkey("ctrl", "a")
-    pyautogui.write(contact, interval=0.04)
+    _get_pyautogui().hotkey("ctrl", "a")
+    _get_pyautogui().write(contact, interval=0.04)
     time.sleep(0.8)
-    pyautogui.press("enter")
+    _get_pyautogui().press("enter")
     time.sleep(0.6)
 
 
 def _type_and_send(message: str):
     """Types message and sends it."""
-    pyautogui.press("tab")
+    _get_pyautogui().press("tab")
     time.sleep(0.2)
-    pyautogui.hotkey("ctrl", "a")
-    pyautogui.write(message, interval=0.03)
+    _get_pyautogui().hotkey("ctrl", "a")
+    _get_pyautogui().write(message, interval=0.03)
     time.sleep(0.2)
-    pyautogui.press("enter")
+    _get_pyautogui().press("enter")
     time.sleep(0.3)
 
 
 def _send_whatsapp(receiver: str, message: str) -> str:
     """
     Sends a WhatsApp message via the Windows desktop app.
-    Steps: Open WhatsApp → Search contact → Click → Type → Send
+    Steps: Open WhatsApp в†’ Search contact в†’ Click в†’ Type в†’ Send
     """
     try:
         if not _open_app("WhatsApp"):
@@ -62,18 +71,18 @@ def _send_whatsapp(receiver: str, message: str) -> str:
 
         time.sleep(1.5)
 
-        pyautogui.hotkey("ctrl", "f")
+        _get_pyautogui().hotkey("ctrl", "f")
         time.sleep(0.4)
-        pyautogui.hotkey("ctrl", "a")
-        pyautogui.write(receiver, interval=0.04)
+        _get_pyautogui().hotkey("ctrl", "a")
+        _get_pyautogui().write(receiver, interval=0.04)
         time.sleep(1.0)
 
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
         time.sleep(0.8)
 
-        pyautogui.write(message, interval=0.03)
+        _get_pyautogui().write(message, interval=0.03)
         time.sleep(0.2)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
 
         return f"Message sent to {receiver} via WhatsApp."
 
@@ -84,7 +93,7 @@ def _send_whatsapp(receiver: str, message: str) -> str:
 def _send_instagram(receiver: str, message: str) -> str:
     """
     Sends an Instagram DM via browser (instagram.com).
-    Steps: Open Chrome → Go to instagram.com/direct → Search contact → Send
+    Steps: Open Chrome в†’ Go to instagram.com/direct в†’ Search contact в†’ Send
     """
     try:
         import webbrowser
@@ -92,23 +101,23 @@ def _send_instagram(receiver: str, message: str) -> str:
         webbrowser.open("https://www.instagram.com/direct/new/")
         time.sleep(3.5)
 
-        pyautogui.write(receiver, interval=0.05)
+        _get_pyautogui().write(receiver, interval=0.05)
         time.sleep(1.5)
 
-        pyautogui.press("down")
+        _get_pyautogui().press("down")
         time.sleep(0.3)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
         time.sleep(0.5)
 
         for _ in range(3):
-            pyautogui.press("tab")
+            _get_pyautogui().press("tab")
             time.sleep(0.1)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
         time.sleep(1.5)
 
-        pyautogui.write(message, interval=0.04)
+        _get_pyautogui().write(message, interval=0.04)
         time.sleep(0.2)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
 
         return f"Message sent to {receiver} via Instagram."
 
@@ -123,16 +132,16 @@ def _send_telegram(receiver: str, message: str) -> str:
 
         time.sleep(1.5)
 
-        pyautogui.hotkey("ctrl", "f")
+        _get_pyautogui().hotkey("ctrl", "f")
         time.sleep(0.4)
-        pyautogui.write(receiver, interval=0.04)
+        _get_pyautogui().write(receiver, interval=0.04)
         time.sleep(1.0)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
         time.sleep(0.8)
 
-        pyautogui.write(message, interval=0.03)
+        _get_pyautogui().write(message, interval=0.03)
         time.sleep(0.2)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
 
         return f"Message sent to {receiver} via Telegram."
 
@@ -152,15 +161,15 @@ def _send_generic(platform: str, receiver: str, message: str) -> str:
             return f"Could not open {platform}."
 
         time.sleep(1.5)
-        pyautogui.hotkey("ctrl", "f")
+        _get_pyautogui().hotkey("ctrl", "f")
         time.sleep(0.4)
-        pyautogui.write(receiver, interval=0.04)
+        _get_pyautogui().write(receiver, interval=0.04)
         time.sleep(1.0)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
         time.sleep(0.8)
-        pyautogui.write(message, interval=0.03)
+        _get_pyautogui().write(message, interval=0.03)
         time.sleep(0.2)
-        pyautogui.press("enter")
+        _get_pyautogui().press("enter")
 
         return f"Message sent to {receiver} via {platform}."
 
@@ -192,7 +201,7 @@ def send_message(
     if not message_text:
         return "Please specify what message to send, sir."
 
-    print(f"[SendMessage] 📨 {platform} → {receiver}: {message_text[:40]}")
+    print(f"[SendMessage] рџ“Ё {platform} в†’ {receiver}: {message_text[:40]}")
     if player:
         player.write_log(f"[msg] Sending to {receiver} via {platform}...")
 
@@ -208,7 +217,7 @@ def send_message(
     else:
         result = _send_generic(platform, receiver, message_text)
 
-    print(f"[SendMessage] ✅ {result}")
+    print(f"[SendMessage] вњ… {result}")
     if player:
         player.write_log(f"[msg] {result}")
 

@@ -70,13 +70,13 @@ except Exception:
     pass
 
 try:
-    from win10toast import ToastNotifier
-    ToastNotifier().show_toast(
-        "Kaizumi Reminder",
-        "{py_message}",
-        duration=15,
-        threaded=False
-    )
+    from winotify import Notification
+    Notification(
+        app_id="Kaizumi",
+        title="Kaizumi Reminder",
+        msg="{py_message}",
+        duration="long",
+    ).show()
 except Exception:
     try:
         import subprocess

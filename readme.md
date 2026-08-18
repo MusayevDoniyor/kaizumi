@@ -208,7 +208,10 @@ and enforces it centrally — no per-tool ad-hoc checks.
 - When a high-risk tool is requested, Kaizumi asks *"May I …?"* and waits for
   an explicit **yes** before re-invoking the action.
 - The model is instructed to **never set `confirm=true` on its own** — only
-  after you approve.
+  after you approve. This is *enforced technically*, not just by instruction:
+  a blocked high-risk call receives a **single-use token** (`confirm_token`)
+  bound to that exact call. The tool stays blocked until the model echoes the
+  token back, and each token works only once.
 - Secrets (API keys, tokens, passwords) are **redacted from logs** and never
   written to memory.
 - The Bluetooth app requires the access token (constant-time comparison);
