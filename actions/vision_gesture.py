@@ -29,6 +29,7 @@ from vision.camera_manager import CameraConfig, CameraManager
 from vision.object_detector import DetectorConfig, ObjectDetector
 from vision.ocr_engine import CodeReader, OCREngine
 from vision.face_privacy import FacePrivacyProcessor
+from vision.segmentation import ForegroundSegmenter
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -151,6 +152,7 @@ class VisionService:
         self._ocr_engine = OCREngine()
         self._code_reader = CodeReader()
         self._privacy_processor = FacePrivacyProcessor()
+        self._segmenter = ForegroundSegmenter()
 
     # ── Setup / control ───────────────────────────────────────────────────────
     def configure(self, player=None, speak=None):
@@ -468,6 +470,27 @@ class VisionService:
         except Exception as e:
             return f"OCR failed: {e}"
 
+    def remove_background_snapshot(self) -> str:
+        """Capture a frame, remove its background, and save a PNG artifact."""
+        try:
+            cap = self._open_camera()
+            for _ in range(5):
+                cap.read()
+            ok, frame = cap.read()
+            cap.release()
+            if not ok:
+                return "Could not capture camera frame, sir."
+            output = self._segmenter.remove_background(frame, transparent=True)
+            if output is None:
+                return self._segmenter.error or "Background removal failed, sir."
+            out_dir = BASE_DIR / "data" / "vision"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            path = out_dir / f"foreground_{int(time.time())}.png"
+            cv2.imwrite(str(path), output)
+            return f"Background removed. Saved transparent image to {path}."
+        except Exception as e:
+            return f"Background removal failed: {e}"
+
     def snapshot(self, question: str = "") -> str:
         mp = _get_mp()
         if mp is None:
@@ -522,7 +545,7 @@ def vision_gesture(
     speak=None,
 ) -> str:
     """Control the full-body vision service.
-    action: start | stop | face_count | qr | ocr | snapshot | status
+    action: start | stop | face_count | qr | ocr | background_remove | snapshot | status
     mode (for start): gesture | air_mouse | volume | motion | posture | focus"""
     params     = parameters or {}
     action     = str(params.get("action", "status")).lower().strip()
@@ -540,6 +563,8 @@ def vision_gesture(
         return _service.read_qr()
     if action in ("ocr", "read_text", "text"):
         return _service.read_text()
+    if action in ("background_remove", "remove_background", "cutout"):
+        return _service.remove_background_snapshot()
     if action == "snapshot":
         return _service.snapshot(params.get("text", ""))
     if action in ("status", "info"):

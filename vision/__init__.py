@@ -6,6 +6,7 @@ from .object_detector import DetectorConfig, ObjectDetector, default_detector
 from .vision_pipeline import PipelineResult, VisionPipeline
 from .ocr_engine import OCRConfig, OCREngine, CodeReader
 from .face_privacy import FacePrivacyConfig, FacePrivacyProcessor
+from .segmentation import SegmentationConfig, ForegroundSegmenter
 
 __all__ = [
     "CameraManager", "CameraConfig", "FramePacket", "VisionEvent",
@@ -13,4 +14,5 @@ __all__ = [
     "PipelineResult", "VisionPipeline",
     "OCRConfig", "OCREngine", "CodeReader",
     "FacePrivacyConfig", "FacePrivacyProcessor",
+    "SegmentationConfig", "ForegroundSegmenter",
 ]

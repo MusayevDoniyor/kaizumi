@@ -876,16 +876,16 @@ TOOL_DECLARATIONS = [
             "Modes (continuous): 'gesture' recognizes hand gestures and finger counts; "
             "'air_mouse' moves the cursor with the index finger (pinch to click); "
             "'volume' controls volume via thumb-index pinch; 'motion' detects movement; "
-            "'posture' reports body pose (arms raised, leaning); 'focus' watches the frame. "
-            "One-shot actions: 'face_count' counts people, 'qr' reads a QR code, "
-            "'snapshot' describes what's on camera. "
+            "'posture' reports body pose (arms raised, leaning); 'objects' runs YOLO object detection. "
+            "One-shot actions: 'face_count' counts people, 'qr' reads a QR code, 'ocr' reads text, "
+            "'background_remove' saves a transparent subject cutout, 'snapshot' describes what's on camera. "
             "Use when the user asks about gestures, wants hand control, or camera actions."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action": {"type": "STRING", "description": "start | stop | face_count | qr | snapshot | status"},
-                "mode":   {"type": "STRING", "description": "gesture | air_mouse | volume | motion | posture | focus (for start)"},
+                "action": {"type": "STRING", "description": "start | stop | face_count | qr | ocr | background_remove | snapshot | status"},
+                "mode":   {"type": "STRING", "description": "gesture | air_mouse | volume | motion | posture | objects (for start)"},
                 "text":   {"type": "STRING", "description": "Optional question for snapshot"}
             },
             "required": ["action"]
