@@ -547,6 +547,8 @@ class VisionService:
         return frame if ok else None
 
     def register_face(self, name: str) -> str:
+        if not str(name).strip():
+            return "Please provide a profile name, for example: register my face as Doniyor."
         frame = self._capture_frame()
         if self._opencv_identity.load():
             if self._opencv_identity.enroll(name, frame):
@@ -672,7 +674,8 @@ def vision_gesture(
     if action in ("vqa", "ask_scene", "visual_question"):
         return _service.describe_scene(str(params.get("text", "")))
     if action in ("register_face", "enroll_face"):
-        return _service.register_face(str(params.get("name", "")))
+        name = params.get("name") or params.get("text") or params.get("person") or ""
+        return _service.register_face(str(name))
     if action in ("identify_face", "recognize_face", "verify_identity"):
         return _service.identify_face()
     if action in ("multimodal", "vision_ai"):

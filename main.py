@@ -889,7 +889,8 @@ TOOL_DECLARATIONS = [
             "properties": {
                 "action": {"type": "STRING", "description": "start | stop | record_start | record_stop | face_count | qr | ocr | background_remove | describe | vqa | register_face | identify_face | verify_identity | multimodal | snapshot | status"},
                 "mode":   {"type": "STRING", "description": "gesture | air_mouse | volume | motion | posture | objects (for start)"},
-                "text":   {"type": "STRING", "description": "Optional question for snapshot"}
+                "text":   {"type": "STRING", "description": "Optional question, OCR text, or face profile name"},
+                "name":   {"type": "STRING", "description": "Face profile name for register_face"}
             },
             "required": ["action"]
         }
