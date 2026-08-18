@@ -1,7 +1,7 @@
 ﻿import os, json, time, math, random, threading
 import tkinter as tk
 from collections import deque
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageOps
 import sys
 from pathlib import Path
 from vision.arcade import VisionArcade
@@ -135,6 +135,7 @@ class KaizumiUI:
         # ── State ────────────────────────────────────────────────────────────
         self.speaking     = False
         self.muted        = False          # Mute flag — main.py reads it
+        self.silent_mode  = False          # Text-only mode: keep transcript, suppress TTS
         self.scale        = 1.0
         self.target_scale = 1.0
         self.halo_a       = 60.0
@@ -226,6 +227,7 @@ class KaizumiUI:
 
         # ── Hotkeys ───────────────────────────────────────────────────────────
         self.root.bind("<F4>", lambda e: self._toggle_mute())
+        self.root.bind("<F6>", lambda e: self._toggle_silent_mode())
         self.root.bind("<F5>", lambda e: self.cycle_theme())
 
         # Re-layout widgets when the window is resized
@@ -433,7 +435,12 @@ class KaizumiUI:
         win = tk.Toplevel(self.root)
         win.title("Kaizumi Vision Arcade · Local CV")
         win.configure(bg=self.col["bg"])
-        win.geometry("900x680")
+        win.geometry("1100x760")
+        win.minsize(900, 620)
+        try:
+            win.state("zoomed")
+        except tk.TclError:
+            pass
         toolbar = tk.Frame(win, bg=self.col["panel"])
         toolbar.pack(fill="x", padx=10, pady=10)
         for label, game in [("FACE FILTER", "face_filter"),
@@ -448,7 +455,7 @@ class KaizumiUI:
             tk.Button(toolbar, text=label, command=lambda g=game: self._start_arcade_game(g),
                       bg=self.col["input"], fg=self.col["text"], activebackground=self.col["pri"],
                       activeforeground=self.col["bg"], relief="flat", font=("Consolas", 9, "bold"),
-                      cursor="hand2").pack(side="left", padx=4, ipady=5)
+                      cursor="hand2").pack(side="left", padx=3, ipady=7)
         label = tk.Label(win, text="Waiting for camera frames…", bg=self.col["bg"],
                          fg=self.col["text"], font=("Consolas", 11))
         label.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -498,15 +505,22 @@ class KaizumiUI:
             image = Image.fromarray(rgb)
             target_w = max(420, self._arcade_label.winfo_width() - 24)
             target_h = max(300, self._arcade_label.winfo_height() - 24)
-            image.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+            image = ImageOps.fit(image, (target_w, target_h), method=Image.Resampling.LANCZOS,
+                                 centering=(0.5, 0.5))
             draw = ImageDraw.Draw(image)
             state = self._arcade.state
-            draw.rectangle((10, 10, image.width - 10, 62), outline="#00d4ff", width=2)
-            draw.text((24, 22), f"{state.game.upper()}   SCORE {state.score}   LIVES {state.lives}", fill="#8ffcff")
-            draw.text((24, 42), state.message, fill="#ffcc00")
+            hud_h = max(88, image.height // 8)
+            title_font = ImageFont.truetype("C:/Windows/Fonts/segoeuib.ttf", max(18, image.width // 55))
+            msg_font = ImageFont.truetype("C:/Windows/Fonts/segoeui.ttf", max(15, image.width // 72))
+            draw.rectangle((0, 0, image.width, hud_h), fill="#001520", outline="#00d4ff", width=3)
+            draw.text((24, 14), f"{state.game.upper()}   SCORE {state.score}   LIVES {state.lives}",
+                      fill="#8ffcff", font=title_font, stroke_width=2, stroke_fill="#001520")
+            extra = f"  ROUND {state.rounds}  STREAK {state.streak}" if state.rounds else ""
+            draw.text((24, 14 + title_font.size + 8), state.message + extra,
+                      fill="#ffcc00", font=msg_font, stroke_width=1, stroke_fill="#001520")
             if state.game == "floor_lava":
                 draw.rectangle((0, int(image.height * 0.82), image.width, image.height), fill="#8b1900")
-                draw.text((24, int(image.height * 0.86)), "LAVA", fill="#ffcc00")
+                draw.text((24, int(image.height * 0.86)), "LAVA", fill="#ffcc00", font=title_font)
             elif state.game == "planet_explorer":
                 cx, cy = int(image.width * 0.72), int(image.height * 0.55)
                 draw.ellipse((cx - 100, cy - 100, cx + 100, cy + 100), outline="#38bdf8", width=5)
@@ -520,7 +534,7 @@ class KaizumiUI:
                     x = 30 + i * 70
                     bar = 35 if note == state.note else 15
                     draw.rectangle((x, image.height - 50 - bar, x + 42, image.height - 50), fill="#00d4ff")
-                    draw.text((x + 12, image.height - 42), note, fill="#001520")
+                    draw.text((x + 12, image.height - 42), note, fill="#001520", font=msg_font)
             elif state.game == "shape_creator":
                 cx, cy = int(state.hand_x * image.width), int(image.height * 0.55)
                 if state.shape == "circle":
@@ -543,7 +557,7 @@ class KaizumiUI:
             image = Image.fromarray(rgb)
             target_w = max(320, self._preview_label.winfo_width() - 24)
             target_h = max(240, self._preview_label.winfo_height() - 24)
-            image.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+            image = ImageOps.contain(image, (target_w, target_h), method=Image.Resampling.LANCZOS)
             self._preview_image = ImageTk.PhotoImage(image)
             self._preview_label.configure(image=self._preview_image, text="")
         except Exception:
@@ -592,6 +606,34 @@ class KaizumiUI:
         self._mute_canvas.place(x=BTN_X, y=BTN_Y)
         self._mute_canvas.bind("<Button-1>", lambda e: self._toggle_mute())
         self._draw_mute_button()
+
+        self._silent_canvas = tk.Canvas(
+            self.root, width=150, height=32,
+            bg=self.col["bg"], highlightthickness=0, cursor="hand2"
+        )
+        self._silent_canvas.place(x=136, y=BTN_Y)
+        self._silent_canvas.bind("<Button-1>", lambda e: self._toggle_silent_mode())
+        self._draw_silent_button()
+
+    def _draw_silent_button(self):
+        c = getattr(self, "_silent_canvas", None)
+        if c is None:
+            return
+        c.delete("all")
+        active = self.silent_mode
+        border = self.col["acc2"] if active else self.col["mid"]
+        fill = "#211900" if active else self.col["panel"]
+        fg = self.col["acc2"] if active else self.col["text"]
+        label = " TEXT-ONLY" if active else " VOICE ON"
+        c.create_rectangle(0, 0, 150, 32, outline=border, fill=fill, width=1)
+        c.create_text(75, 16, text=f"▣{label}", fill=fg, font=("Segoe UI", 10, "bold"))
+
+    def _toggle_silent_mode(self):
+        self.silent_mode = not self.silent_mode
+        self._draw_silent_button()
+        self.set_state("TEXT-ONLY" if self.silent_mode else ("MUTED" if self.muted else "LISTENING"))
+        self.write_log("SYS: Text-only mode enabled — Kaizumi will type, not speak." if self.silent_mode
+                       else "SYS: Voice output restored.")
 
     def _draw_mute_button(self):
         c = self._mute_canvas
@@ -699,6 +741,8 @@ class KaizumiUI:
         self._send_btn.place(x=x0 + INP_W + CLR_W + 8, y=INPUT_Y,
                              width=BTN_W, height=46)
         self._mute_canvas.place(x=18, y=H - 70)
+        if getattr(self, "_silent_canvas", None) is not None:
+            self._silent_canvas.place(x=136, y=H - 70)
         if W >= 900:
             self._left_deck.place(x=16, y=96, width=184, height=max(260, H - 210))
             self._right_deck.place(x=W - 216, y=96, width=200, height=max(260, H - 210))
@@ -1171,7 +1215,7 @@ class KaizumiUI:
         self.set_state("SPEAKING")
 
     def stop_speaking(self):
-        if not self.muted:
+        if not self.muted and not self.silent_mode:
             self.set_state("LISTENING")
 
     # ── API key ───────────────────────────────────────────────────────────────

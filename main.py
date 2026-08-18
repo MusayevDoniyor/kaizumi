@@ -2613,14 +2613,15 @@ class KaizumiLive:
             while True:
                 async for response in self.session.receive():
 
-                    if response.data:
+                    if response.data and not getattr(self.ui, "silent_mode", False):
                         self.audio_in_queue.put_nowait(response.data)
 
                     if response.server_content:
                         sc = response.server_content
 
                         if sc.output_transcription and sc.output_transcription.text:
-                            self.set_speaking(True)
+                            if not getattr(self.ui, "silent_mode", False):
+                                self.set_speaking(True)
                             txt = sc.output_transcription.text.strip()
                             if txt:
                                 out_buf.append(txt)
@@ -2700,6 +2701,12 @@ class KaizumiLive:
         try:
             while True:
                 chunk = await self.audio_in_queue.get()
+                if getattr(self.ui, "silent_mode", False):
+                    # Drain already-buffered audio as well, so switching to
+                    # Text-only takes effect immediately instead of allowing
+                    # the tail of the previous reply to play.
+                    self.set_speaking(False)
+                    continue
                 if not self._is_speaking:
                     self.set_speaking(True)
                 self._last_play_ts = time.monotonic()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass
 
 
@@ -24,6 +25,9 @@ class ArcadeState:
     note: str = "C"
     planet_x: float = 0.5
     pose_active: bool = False
+    rounds: int = 0
+    streak: int = 0
+    target_x: float = 0.5
 
 
 class VisionArcade:
@@ -40,6 +44,9 @@ class VisionArcade:
                         "arpeggiator"}:
             raise ValueError(f"Unknown arcade game: {game}")
         self.state = ArcadeState(game=game, message="Show your gesture")
+        self._last_gesture = ""
+        self._last_action_at = 0.0
+        self._last_pose = False
         if game == "face_filter":
             self.state.message = "Move your head — filter locked"
         elif game == "gesture_pong":
@@ -67,10 +74,22 @@ class VisionArcade:
     def on_gesture(self, gesture: str, x: float = 0.5) -> ArcadeState:
         gesture = gesture.lower().strip()
         self.state.hand_x = max(0.0, min(1.0, float(x)))
+        now = time.monotonic()
+        action_games = {"gesture_pong", "rps", "shape_creator", "laser_defense"}
+        if (self.state.game in action_games and gesture == self._last_gesture
+                and now - self._last_action_at < 0.55):
+            return self.state
+        self._last_gesture = gesture
+        self._last_action_at = now
         if self.state.game == "gesture_pong":
             if gesture in {"pointing", "one finger (index)"}:
-                self.state.score += 1
-                self.state.message = "PADDLE HIT"
+                if abs(self.state.hand_x - self.state.target_x) <= 0.35:
+                    self.state.score += 1
+                    self.state.target_x = self._rng.random()
+                    self.state.message = "PADDLE HIT · NEW TARGET"
+                else:
+                    self.state.lives = max(0, self.state.lives - 1)
+                    self.state.message = "MISS · FOLLOW THE TARGET"
             elif gesture == "fist":
                 self.state.lives = max(0, self.state.lives - 1)
                 self.state.message = "MISS"
@@ -98,24 +117,29 @@ class VisionArcade:
         elif self.state.game == "rps" and gesture in RPS_MAP:
             self.state.player_choice = RPS_MAP[gesture]
             self.state.cpu_choice = self._rng.choice(["rock", "paper", "scissors"])
+            self.state.rounds += 1
             if self.state.player_choice == self.state.cpu_choice:
+                self.state.streak = 0
                 self.state.message = "DRAW"
             elif (self.state.player_choice, self.state.cpu_choice) in {
                 ("rock", "scissors"), ("paper", "rock"), ("scissors", "paper")
             }:
                 self.state.score += 1
+                self.state.streak += 1
                 self.state.message = "YOU WIN"
             else:
                 self.state.lives = max(0, self.state.lives - 1)
+                self.state.streak = 0
                 self.state.message = "KAIZUMI WINS"
         return self.state
 
     def on_pose(self, arms_raised: bool, lean: float = 0.0) -> ArcadeState:
         self.state.pose_active = bool(arms_raised)
         if self.state.game == "floor_lava":
-            if arms_raised:
+            if arms_raised and not self._last_pose:
                 self.state.score += 1
                 self.state.message = "JUMP — SAFE!"
-            else:
+            elif not arms_raised:
                 self.state.message = "LAVA RISING — RAISE ARMS"
+        self._last_pose = bool(arms_raised)
         return self.state
