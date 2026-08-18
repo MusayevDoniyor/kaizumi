@@ -27,6 +27,7 @@ import cv2
 import numpy as np
 from vision.camera_manager import CameraConfig, CameraManager
 from vision.object_detector import DetectorConfig, ObjectDetector
+from vision.ocr_engine import CodeReader, OCREngine
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -146,6 +147,8 @@ class VisionService:
         self._object_detector = ObjectDetector(
             DetectorConfig(model_path=MODELS_DIR / "yolo11n.pt")
         )
+        self._ocr_engine = OCREngine()
+        self._code_reader = CodeReader()
 
     # ── Setup / control ───────────────────────────────────────────────────────
     def configure(self, player=None, speak=None):
@@ -439,6 +442,24 @@ class VisionService:
         except Exception as e:
             return f"QR reading failed: {e}"
 
+    def read_text(self) -> str:
+        """Capture one frame and return readable text, if OCR is available."""
+        try:
+            cap = self._open_camera()
+            for _ in range(5):
+                cap.read()
+            ok, frame = cap.read()
+            cap.release()
+            if not ok:
+                return "Could not capture camera frame, sir."
+            events = self._ocr_engine.extract(frame)
+            if not events:
+                return self._ocr_engine.error or "I couldn't find readable text, sir."
+            text = " ".join(event.label for event in events)
+            return f"I can read: {text[:1000]}"
+        except Exception as e:
+            return f"OCR failed: {e}"
+
     def snapshot(self, question: str = "") -> str:
         mp = _get_mp()
         if mp is None:
@@ -493,7 +514,7 @@ def vision_gesture(
     speak=None,
 ) -> str:
     """Control the full-body vision service.
-    action: start | stop | face_count | qr | snapshot | status
+    action: start | stop | face_count | qr | ocr | snapshot | status
     mode (for start): gesture | air_mouse | volume | motion | posture | focus"""
     params     = parameters or {}
     action     = str(params.get("action", "status")).lower().strip()
@@ -509,6 +530,8 @@ def vision_gesture(
         return _service.face_count()
     if action == "qr":
         return _service.read_qr()
+    if action in ("ocr", "read_text", "text"):
+        return _service.read_text()
     if action == "snapshot":
         return _service.snapshot(params.get("text", ""))
     if action in ("status", "info"):

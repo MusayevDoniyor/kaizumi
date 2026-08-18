@@ -301,7 +301,8 @@ class KaizumiUI:
         self._deck_label(self._right_deck, "ONE-SHOT SCANS")
         for label, command in [("SNAPSHOT", "take a camera snapshot"),
                                 ("FACE COUNT", "count faces in front of the camera"),
-                                ("READ QR", "read a QR code with the camera")]:
+                                ("READ QR", "read a QR code with the camera"),
+                                ("READ TEXT", "read text with the camera")]:
             self._deck_button(self._right_deck, label, command)
         self._vision_status = tk.Label(self._right_deck, text="● STANDBY", anchor="w",
                                        bg=self.col["panel"], fg=self.col["green"],
