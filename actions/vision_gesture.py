@@ -25,6 +25,7 @@ import threading
 
 import cv2
 import numpy as np
+from vision.camera_manager import CameraConfig, CameraManager
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -132,6 +133,7 @@ class VisionService:
         self._mode      = "gesture"
         self._thread    = None
         self._cap       = None
+        self._camera    = None
         self._player    = None
         self._speak     = None
         self._ts        = 0
@@ -199,10 +201,8 @@ class VisionService:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     def _loop(self):
-        self._cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        if not self._cap.isOpened():
+        self._camera = CameraManager(CameraConfig(index=0, width=640, height=480))
+        if not self._camera.start():
             print("[VisionGesture] ❌ Camera failed to open")
             with self._lock:
                 self._running = False
@@ -213,7 +213,8 @@ class VisionService:
             self._build_tools()
         except Exception as e:
             print(f"[VisionGesture] ❌ Model load failed: {e}")
-            self._cap.release()
+            self._camera.stop()
+            self._camera = None
             with self._lock:
                 self._running = False
             self._ready.set()
@@ -225,21 +226,22 @@ class VisionService:
         print("[VisionGesture] ✅ Camera running")
 
         while self._running:
-            ok, frame = self._cap.read()
-            if not ok:
+            packet = self._camera.latest()
+            if packet is None or packet.sequence <= self._ts:
                 time.sleep(0.02)
                 continue
-            self._ts += 1
+            self._ts = packet.sequence
             with self._lock:
                 mode = self._mode
             try:
-                self._process(frame, mode, self._ts)
+                self._process(packet.frame, mode, self._ts)
             except Exception as e:
                 print(f"[VisionGesture] ⚠️ {e}")
             time.sleep(0.02)
 
-        self._cap.release()
-        self._cap = None
+        if self._camera:
+            self._camera.stop()
+        self._camera = None
         print("[VisionGesture] 🔴 Camera stopped")
 
     def _process(self, frame, mode: str, ts: int):
