@@ -34,6 +34,7 @@ from vision.understanding import SceneCaptioner, VisualQuestionAnswering
 from vision.anomaly_monitor import AnomalyMonitor
 from vision.face_recognition import FaceProfileStore, FaceRecognitionEngine
 from vision.multimodal import MultimodalVision
+from vision.recording import VisionRecorder
 
 _MP = None  # None=not checked yet, False=unavailable, tuple=available
 
@@ -163,6 +164,7 @@ class VisionService:
         self._face_profiles = FaceProfileStore(BASE_DIR / "data" / "vision" / "face_profiles.json")
         self._face_recognition = FaceRecognitionEngine(self._face_profiles)
         self._multimodal = MultimodalVision()
+        self._recorder = VisionRecorder()
 
     # ── Setup / control ───────────────────────────────────────────────────────
     def configure(self, player=None, speak=None):
@@ -258,6 +260,9 @@ class VisionService:
                     self._player.set_vision_frame(safe_frame)
                 except Exception:
                     pass
+            if self._recorder.is_recording:
+                safe_frame, _ = self._privacy_processor.blur(packet.frame)
+                self._recorder.write(safe_frame)
             with self._lock:
                 mode = self._mode
             try:
@@ -552,6 +557,20 @@ class VisionService:
         frame = self._capture_frame()
         return self._multimodal.ask(frame, question)
 
+    def start_recording(self) -> str:
+        if not self._running or not self._camera:
+            return "Start a vision camera mode before recording, sir."
+        packet = self._camera.latest()
+        if packet is None:
+            return "Camera has not produced a frame yet, sir."
+        height, width = packet.frame.shape[:2]
+        path = self._recorder.start(VisionRecorder.default_path(BASE_DIR), (width, height))
+        return f"Privacy-safe recording started: {path}"
+
+    def stop_recording(self) -> str:
+        path = self._recorder.stop()
+        return f"Recording saved: {path}" if path else "No recording is active, sir."
+
     def snapshot(self, question: str = "") -> str:
         mp = _get_mp()
         if mp is None:
@@ -606,7 +625,7 @@ def vision_gesture(
     speak=None,
 ) -> str:
     """Control the full-body vision service.
-    action: start | stop | face_count | qr | ocr | background_remove | describe | vqa | register_face | identify_face | multimodal | snapshot | status
+    action: start | stop | record_start | record_stop | face_count | qr | ocr | background_remove | describe | vqa | register_face | identify_face | multimodal | snapshot | status
     mode (for start): gesture | air_mouse | volume | motion | posture | focus"""
     params     = parameters or {}
     action     = str(params.get("action", "status")).lower().strip()
@@ -618,6 +637,10 @@ def vision_gesture(
         return _service.start(mode)
     if action == "stop":
         return _service.stop()
+    if action in ("record_start", "start_recording"):
+        return _service.start_recording()
+    if action in ("record_stop", "stop_recording"):
+        return _service.stop_recording()
     if action == "face_count":
         return _service.face_count()
     if action == "qr":

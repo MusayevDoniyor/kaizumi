@@ -302,6 +302,8 @@ class KaizumiUI:
                             ("VOLUME HAND", "volume"), ("POSTURE", "posture"),
                             ("MOTION WATCH", "motion")]:
             self._deck_button(self._right_deck, label, f"start vision {mode}", mode)
+        self._deck_button(self._right_deck, "START RECORDING", "__record_start__")
+        self._deck_button(self._right_deck, "STOP RECORDING", "__record_stop__")
         self._deck_button(self._right_deck, "STOP VISION", "stop vision", "STANDBY")
         self._deck_label(self._right_deck, "ONE-SHOT SCANS")
         for label, command in [("SNAPSHOT", "take a camera snapshot"),
@@ -345,6 +347,12 @@ class KaizumiUI:
     def _deck_command(self, command, mode=None):
         if command == "__open_preview__":
             self.open_vision_preview()
+            return
+        if command in ("__record_start__", "__record_stop__"):
+            self.write_log("SYS: " + ("Recording requested." if command == "__record_start__" else "Recording stop requested."))
+            if self.on_text_command:
+                text = "start recording" if command == "__record_start__" else "stop recording"
+                threading.Thread(target=self.on_text_command, args=(text,), daemon=True).start()
             return
         self.vision_mode = (mode or self.vision_mode).upper()
         self._safe_ui(self._refresh_deck_status)

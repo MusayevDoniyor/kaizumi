@@ -12,6 +12,8 @@ from .anomaly_monitor import AnomalyConfig, AnomalyMonitor
 from .image_enhancement import SuperResolution, ImageColorizer
 from .face_recognition import FaceProfile, FaceProfileStore, FaceRecognitionEngine
 from .multimodal import MultimodalVision
+from .recording import VisionRecorder
+from .model_manager import ModelManager, ModelSpec
 
 __all__ = [
     "CameraManager", "CameraConfig", "FramePacket", "VisionEvent",
@@ -25,4 +27,5 @@ __all__ = [
     "SuperResolution", "ImageColorizer",
     "FaceProfile", "FaceProfileStore", "FaceRecognitionEngine",
     "MultimodalVision",
+    "VisionRecorder", "ModelManager", "ModelSpec",
 ]

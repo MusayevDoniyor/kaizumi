@@ -887,7 +887,7 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action": {"type": "STRING", "description": "start | stop | face_count | qr | ocr | background_remove | describe | vqa | register_face | identify_face | multimodal | snapshot | status"},
+                "action": {"type": "STRING", "description": "start | stop | record_start | record_stop | face_count | qr | ocr | background_remove | describe | vqa | register_face | identify_face | multimodal | snapshot | status"},
                 "mode":   {"type": "STRING", "description": "gesture | air_mouse | volume | motion | posture | objects (for start)"},
                 "text":   {"type": "STRING", "description": "Optional question for snapshot"}
             },
