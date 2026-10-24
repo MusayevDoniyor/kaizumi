@@ -32,6 +32,6 @@ Start-Sleep -Seconds 2
 Start-Process -FilePath $PY `
     -ArgumentList @("-u", (Join-Path $ROOT "main.py"), "--remote") `
     -WorkingDirectory $ROOT `
-    -WindowStyle Hidden
+    -WindowStyle Normal
 
 Write-Output "Kaizumi started (single instance)."

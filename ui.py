@@ -1,4 +1,4 @@
-﻿import os, json, time, math, random, threading
+import os, json, time, math, random, threading
 import tkinter as tk
 from collections import deque
 from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageOps
@@ -239,6 +239,9 @@ class KaizumiUI:
         self._api_key_ready = self._api_keys_exist()
         if not self._api_key_ready:
             self._show_setup_ui()
+
+        self.root.deiconify()
+        self.root.lift()
 
         self._animate()
         self.root.protocol("WM_DELETE_WINDOW", lambda: os._exit(0))

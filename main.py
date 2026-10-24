@@ -36,41 +36,8 @@ from memory.memory_manager import (
 from agent.resilience import ToolResult, run_sync_tool
 from agent.loop_guard import LoopGuard
 
-from actions.flight_finder     import flight_finder
-from actions.open_app          import open_app
-from actions.weather_report    import weather_action
-from actions.send_message      import send_message
-from actions.reminder          import reminder
-from actions.computer_settings import computer_settings
-from actions.screen_processor  import screen_process
-from actions.youtube_video     import youtube_video
-from actions.cmd_control       import cmd_control
-from actions.desktop           import desktop_control
-from actions.browser_control   import browser_control
-from actions.file_controller   import file_controller
-from actions.code_helper       import code_helper
-from actions.dev_agent         import dev_agent
-from actions.web_search        import web_search as web_search_action
-from actions.computer_control  import computer_control
-from actions.game_updater      import game_updater
-from actions.system_status     import system_status
-from actions.task_manager      import task_manager
-from actions.clipboard         import clipboard_action
-from actions.vision_gesture    import vision_gesture
-from actions.daily_briefing    import daily_briefing
-from actions.notifications     import notify
-from actions.wake_word         import _service as wake_service
-from actions.gmail             import gmail_action
-from actions.pdf_reader        import read_pdf as read_pdf_action, pdf_qa
-from actions.autostart         import autostart_action
-from actions.vision_click      import vision_click_action
-from actions.document_qa       import read_document as read_document_action, document_qa as document_qa_action
-from actions.monitor           import monitor_action, check_rules as check_monitor_rules, check_email_watch, email_watch_action
-from actions.guardian          import guardian_action, check_guardian, battery_health
-from actions.translate         import translate_action
-from actions.media_control     import media_control_action
-from actions.calendar          import calendar_action
-from actions.drive             import drive_action
+# Heavy action modules are imported lazily on-demand in _build_tool_handlers()
+# to keep startup instantaneous (<0.5s) and prevent unused heavy ML modules from hogging memory.
 
 
 def get_base_dir():
@@ -1390,6 +1357,7 @@ class KaizumiLive:
         self._rolling_parts = []
         self._rolling_len   = 0
         self._roll_turns    = 0
+        self._human_confirmed = False
         self.loop_guard     = LoopGuard()
         self._tool_handlers = self._build_tool_handlers()
         self.ui.on_text_command = self._on_text_command
@@ -1415,6 +1383,7 @@ class KaizumiLive:
                 self.telegram_chat = os.environ["KAIZUMI_TELEGRAM_CHAT_ID"]
 
         try:
+            from actions.wake_word import _service as wake_service
             wake_service.configure(on_detect=self._on_wake_detect)
         except Exception:
             pass
@@ -1515,7 +1484,15 @@ class KaizumiLive:
             print(f"[Tray] ⚠️ Could not attach tray: {e}")
             import traceback; traceback.print_exc()
 
+    def _mark_human_confirmed(self):
+        self._human_confirmed = True
+        print("[KAIZUMI] 🛡️ Human confirmation verified out-of-band.")
+
     def _on_text_command(self, text: str):
+        _words = set(re.findall(r"\w+", (text or "").lower()))
+        _affirmative = {"yes", "yeah", "yep", "sure", "ok", "okay", "proceed", "allow", "approve", "ha", "albatta", "evet", "olur"}
+        if _words & _affirmative:
+            self._mark_human_confirmed()
         if not self._loop or not self.session or not self._send_lock:
             return
         async def _send():
@@ -1791,56 +1768,62 @@ class KaizumiLive:
                 value=args.get("value"),
             )
 
+        def _lazy(mod, fn, *extra_args, **extra_kwargs):
+            import importlib
+            m = importlib.import_module(mod)
+            f = getattr(m, fn)
+            return lambda a: f(parameters=a, *extra_args, **extra_kwargs)
+
         return {
-            "open_app":          (lambda a: open_app(parameters=a, response=None, player=ui), 60),
-            "weather_report":    (lambda a: weather_action(parameters=a, player=ui), 60),
-            "browser_control":   (lambda a: browser_control(parameters=a, player=ui), 120),
-            "file_controller":   (lambda a: file_controller(parameters=a, player=ui), 60),
-            "send_message":      (lambda a: send_message(parameters=a, response=None, player=ui, session_memory=None), 60),
-            "reminder":          (lambda a: reminder(parameters=a, response=None, player=ui), 30),
-            "youtube_video":     (lambda a: youtube_video(parameters=a, response=None, player=ui), 90),
-            "screen_process":    (lambda a: screen_process(parameters=a, player=ui), 120),
-            "computer_settings": (lambda a: computer_settings(parameters=a, response=None, player=ui), 120),
-            "cmd_control":       (lambda a: cmd_control(parameters=a, player=ui), 120),
-            "desktop_control":   (lambda a: desktop_control(parameters=a, player=ui), 60),
-            "code_helper":       (lambda a: code_helper(parameters=a, player=ui, speak=speak), 180),
-            "dev_agent":         (lambda a: dev_agent(parameters=a, player=ui, speak=speak), 180),
+            "open_app":          (_lazy("actions.open_app", "open_app", response=None, player=ui), 60),
+            "weather_report":    (_lazy("actions.weather_report", "weather_action", player=ui), 60),
+            "browser_control":   (_lazy("actions.browser_control", "browser_control", player=ui), 120),
+            "file_controller":   (_lazy("actions.file_controller", "file_controller", player=ui), 60),
+            "send_message":      (_lazy("actions.send_message", "send_message", response=None, player=ui, session_memory=None), 60),
+            "reminder":          (_lazy("actions.reminder", "reminder", response=None, player=ui), 30),
+            "youtube_video":     (_lazy("actions.youtube_video", "youtube_video", response=None, player=ui), 90),
+            "screen_process":    (_lazy("actions.screen_processor", "screen_process", player=ui), 120),
+            "computer_settings": (_lazy("actions.computer_settings", "computer_settings", response=None, player=ui), 120),
+            "cmd_control":       (_lazy("actions.cmd_control", "cmd_control", player=ui), 120),
+            "desktop_control":   (_lazy("actions.desktop", "desktop_control", player=ui), 60),
+            "code_helper":       (_lazy("actions.code_helper", "code_helper", player=ui, speak=speak), 180),
+            "dev_agent":         (_lazy("actions.dev_agent", "dev_agent", player=ui, speak=speak), 180),
             "agent_task":        (_agent_task, 15),
-            "web_search":        (lambda a: web_search_action(parameters=a, player=ui), 90),
-            "computer_control":  (lambda a: computer_control(parameters=a, player=ui), 120),
-            "system_status":     (lambda a: system_status(parameters=a, player=ui), 45),
-            "task_manager":      (lambda a: task_manager(parameters=a, player=ui), 60),
-            "clipboard":         (lambda a: clipboard_action(parameters=a, player=ui), 45),
-            "vision_gesture":    (lambda a: vision_gesture(parameters=a, player=ui, speak=speak), 120),
+            "web_search":        (_lazy("actions.web_search", "web_search", player=ui), 90),
+            "computer_control":  (_lazy("actions.computer_control", "computer_control", player=ui), 120),
+            "system_status":     (_lazy("actions.system_status", "system_status", player=ui), 45),
+            "task_manager":      (_lazy("actions.task_manager", "task_manager", player=ui), 60),
+            "clipboard":         (_lazy("actions.clipboard", "clipboard_action", player=ui), 45),
+            "vision_gesture":    (_lazy("actions.vision_gesture", "vision_gesture", player=ui, speak=speak), 120),
             "recall_memory":     (_recall, 20),
             "forget_memory":     (_forget, 10),
             "clear_memory":      (_clear_mem, 10),
-            "game_updater":      (lambda a: game_updater(parameters=a, player=ui, speak=speak), 120),
-            "flight_finder":     (lambda a: flight_finder(parameters=a, player=ui), 120),
-            "notify":            (lambda a: notify(parameters=a, player=ui), 30),
-            "daily_briefing":    (lambda a: daily_briefing(parameters=a, player=ui), 120),
+            "game_updater":      (_lazy("actions.game_updater", "game_updater", player=ui, speak=speak), 120),
+            "flight_finder":     (_lazy("actions.flight_finder", "flight_finder", player=ui), 120),
+            "notify":            (_lazy("actions.notifications", "notify", player=ui), 30),
+            "daily_briefing":    (_lazy("actions.daily_briefing", "daily_briefing", player=ui), 120),
             "wake_word":         (_wake, 45),
             "save_memory":       (_save_memory, 10),
             "set_mode":          (_set_mode, 10),
             "set_voice":         (_set_voice, 10),
             "set_mood":          (_set_mood, 10),
-            "gmail":             (lambda a: gmail_action(parameters=a, response=None, player=ui), 60),
-            "read_pdf":          (lambda a: read_pdf_action(parameters=a, response=None, player=ui), 60),
-            "pdf_qa":            (lambda a: pdf_qa(parameters=a, response=None, player=ui), 90),
-            "autostart":         (lambda a: autostart_action(parameters=a, response=None, player=ui), 20),
-            "vision_click":      (lambda a: vision_click_action(parameters=a, response=None, player=ui), 90),
-            "monitor_alerts":    (lambda a: monitor_action(parameters=a, response=None, player=ui), 15),
-            "pc_health":         (lambda a: guardian_action(parameters=a, response=None, player=ui), 15),
-            "email_watch":       (lambda a: email_watch_action(parameters=a, response=None, player=ui), 15),
-            "translate":         (lambda a: translate_action(parameters=a, response=None, player=ui), 45),
-            "media_control":     (lambda a: media_control_action(parameters=a, response=None, player=ui), 20),
-            "read_document":     (lambda a: read_document_action(parameters=a, response=None, player=ui), 45),
-            "document_qa":       (lambda a: document_qa_action(parameters=a, response=None, player=ui), 90),
+            "gmail":             (_lazy("actions.gmail", "gmail_action", response=None, player=ui), 60),
+            "read_pdf":          (_lazy("actions.pdf_reader", "read_pdf", response=None, player=ui), 60),
+            "pdf_qa":            (_lazy("actions.pdf_reader", "pdf_qa", response=None, player=ui), 90),
+            "autostart":         (_lazy("actions.autostart", "autostart_action", response=None, player=ui), 20),
+            "vision_click":      (_lazy("actions.vision_click", "vision_click_action", response=None, player=ui), 90),
+            "monitor_alerts":    (_lazy("actions.monitor", "monitor_action", response=None, player=ui), 15),
+            "pc_health":         (_lazy("actions.guardian", "guardian_action", response=None, player=ui), 15),
+            "email_watch":       (_lazy("actions.monitor", "email_watch_action", response=None, player=ui), 15),
+            "translate":         (_lazy("actions.translate", "translate_action", response=None, player=ui), 45),
+            "media_control":     (_lazy("actions.media_control", "media_control_action", response=None, player=ui), 20),
+            "read_document":     (_lazy("actions.document_qa", "read_document", response=None, player=ui), 45),
+            "document_qa":       (_lazy("actions.document_qa", "document_qa", response=None, player=ui), 90),
             "api_add_key":       (_api_add_key, 15),
             "google_auth":       (_google_auth, 30),
             "google_auth_status": (_google_auth_status, 15),
-            "calendar":          (lambda a: calendar_action(parameters=a, response=None, player=ui), 60),
-            "drive":             (lambda a: drive_action(parameters=a, response=None, player=ui), 60),
+            "calendar":          (_lazy("actions.calendar", "calendar_action", response=None, player=ui), 60),
+            "drive":             (_lazy("actions.drive", "drive_action", response=None, player=ui), 60),
             "schedule":          (lambda a: self._schedule(a), 30),
             "create_presentation": (_office_pptx, 60),
             "create_spreadsheet":  (_office_xlsx, 60),
@@ -1865,6 +1848,7 @@ class KaizumiLive:
         if needs_confirmation(name, args, confirm=confirm, confirm_token=confirm_token):
             token = issue_confirmation_token(name, args) if not confirm else ""
             print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
+            self._human_confirmed = False
             return ToolResult(
                 ok=True,
                 content=CONFIRM_MESSAGE.format(desc=describe(name, args),
@@ -1872,6 +1856,15 @@ class KaizumiLive:
                 + (f"\n[token: {token}]" if token else ""),
                 error_kind="confirmation",
             )
+        # Defense-in-depth: if confirm is asserted, require human verification
+        if confirm and not getattr(self, "_human_confirmed", True):
+            print(f"[KAIZUMI] ⛔ {name} rejected — no human consent detected.")
+            return ToolResult(
+                ok=True,
+                content="Action blocked: human user has not verbally approved this yet. Ask the user for permission first.",
+                error_kind="confirmation",
+            )
+        self._human_confirmed = False
 
         if face_verify:
             identity = await run_sync_tool(
@@ -2051,6 +2044,7 @@ class KaizumiLive:
         if needs_confirmation(name, args, confirm=confirm, confirm_token=confirm_token):
             token = issue_confirmation_token(name, args) if not confirm else ""
             print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
+            self._human_confirmed = False
             log_tool(name, args, error="confirmation required")
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
@@ -2060,6 +2054,13 @@ class KaizumiLive:
                     desc=describe(name, args), param=CONFIRM_PARAM)
                     + (f"\n[token: {token}]" if token else "")}
             )
+        if confirm and not getattr(self, "_human_confirmed", True):
+            print(f"[KAIZUMI] ⛔ {name} rejected — no human consent detected.")
+            return types.FunctionResponse(
+                id=fc.id, name=name,
+                response={"result": "Action blocked: human user has not verbally approved this yet. Ask the user for permission first."}
+            )
+        self._human_confirmed = False
 
         self.broadcast_remote({"type": "tool", "name": name, "status": "start",
                                "summary": " ".join(
@@ -2190,6 +2191,8 @@ class KaizumiLive:
 
     async def _monitor_loop(self, interval: float = 30.0):
         """Background watchdog: speak + push any newly-triggered alert."""
+        from actions.monitor import check_rules as check_monitor_rules, check_email_watch
+        from actions.guardian import check_guardian
         while True:
             try:
                 alerts = await asyncio.to_thread(check_monitor_rules)
@@ -2497,6 +2500,10 @@ class KaizumiLive:
         if not token:
             return
         chat = self.telegram_chat
+        if not chat:
+            print("[Telegram] ⚠️ telegram_chat_id not configured in config/api_keys.json — polling disabled.")
+            self.ui.write_log("SYS: Telegram disabled (no chat_id).")
+            return
         if not await asyncio.to_thread(tg.ping_bot, token):
             print("[Telegram] ⚠️ Bot token rejected — check config/api_keys.json.")
             return
@@ -2530,7 +2537,7 @@ class KaizumiLive:
                         cid = (cbq.get("message") or {}).get("chat", {}).get("id")
                     else:
                         cid = msg.get("chat", {}).get("id")
-                    if str(cid) != str(chat):
+                    if not cid or str(cid) != str(chat):
                         continue
                     try:
                         if cbq:
@@ -2574,6 +2581,11 @@ class KaizumiLive:
                 data = indata.tobytes()
                 loop.call_soon_threadsafe(self._safe_put_mic, data)
 
+        if sd is None:
+            print("[KAIZUMI] ⚠️ sounddevice not available — mic disabled")
+            while True:
+                await asyncio.sleep(3600)
+
         try:
             with sd.InputStream(
                 samplerate=SEND_SAMPLE_RATE,
@@ -2586,8 +2598,10 @@ class KaizumiLive:
                 while True:
                     await asyncio.sleep(0.1)
         except Exception as e:
-            print(f"[KAIZUMI] ❌ Mic: {e}")
-            raise
+            print(f"[KAIZUMI] ⚠️ Microphone unavailable ({e}) — continuing in text/remote mode")
+            self.ui.write_log(f"SYS: Mic unavailable ({str(e)[:60]}).")
+            while True:
+                await asyncio.sleep(3600)
 
     def _safe_put_mic(self, data):
         try:
@@ -2637,6 +2651,10 @@ class KaizumiLive:
                             full_in = " ".join(in_buf).strip()
                             if full_in:
                                 self.ui.write_log(f"You: {full_in}")
+                                _words = set(re.findall(r"\w+", full_in.lower()))
+                                _affirmative = {"yes", "yeah", "yep", "sure", "ok", "okay", "proceed", "allow", "approve", "ha", "albatta", "evet", "olur"}
+                                if _words & _affirmative:
+                                    self._mark_human_confirmed()
                             in_buf = []
 
                             full_out = " ".join(out_buf).strip()
@@ -2688,23 +2706,24 @@ class KaizumiLive:
 
     async def _play_audio(self):
         print("[KAIZUMI] 🔊 Play started")
-        loop = asyncio.get_event_loop()
+        if sd is None:
+            print("[KAIZUMI] ⚠️ sounddevice not available — audio output disabled")
+            while True:
+                chunk = await self.audio_in_queue.get()
+                self.set_speaking(False)
 
-        # Sürekli açık output stream — PyAudio'daki stream.write() davranışıyla aynı
-        stream = sd.RawOutputStream(
-            samplerate=RECEIVE_SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype="int16",
-            blocksize=CHUNK_SIZE,
-        )
-        stream.start()
+        stream = None
         try:
+            stream = sd.RawOutputStream(
+                samplerate=RECEIVE_SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="int16",
+                blocksize=CHUNK_SIZE,
+            )
+            stream.start()
             while True:
                 chunk = await self.audio_in_queue.get()
                 if getattr(self.ui, "silent_mode", False):
-                    # Drain already-buffered audio as well, so switching to
-                    # Text-only takes effect immediately instead of allowing
-                    # the tail of the previous reply to play.
                     self.set_speaking(False)
                     continue
                 if not self._is_speaking:
@@ -2715,12 +2734,19 @@ class KaizumiLive:
                     self._turn_complete = False
                     self.set_speaking(False)
         except Exception as e:
-            print(f"[KAIZUMI] ❌ Play: {e}")
-            raise
+            print(f"[KAIZUMI] ⚠️ Audio output failed ({e}) — running in silent mode")
+            self.ui.write_log(f"SYS: Speaker unavailable ({str(e)[:60]}).")
+            while True:
+                chunk = await self.audio_in_queue.get()
+                self.set_speaking(False)
         finally:
             self.set_speaking(False)
-            stream.stop()
-            stream.close()
+            if stream:
+                try:
+                    stream.stop()
+                    stream.close()
+                except Exception:
+                    pass
 
     async def run(self):
         self._loop = asyncio.get_event_loop()

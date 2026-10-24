@@ -73,6 +73,7 @@ class BluetoothRemoteClient(RemoteClient):
         self._subscriber = None
         self.authenticated = False
         self.pending_command_id = ""   # id of the last in-flight command
+        self._rx_buf = bytearray()
 
     def bind_notify(self, notify_char) -> None:
         self._notify_char = notify_char
@@ -178,19 +179,25 @@ class BluetoothBridge:
         await self._handle_message(client, data)
 
     async def _handle_message(self, client: BluetoothRemoteClient, data: bytes):
-        try:
-            if len(data) < 2:
-                return
-            body_len = int.from_bytes(data[:2], "big")
-            body = data[2:2 + body_len]
-            msg = json.loads(body.decode("utf-8"))
-        except Exception:
-            await self._reply(client, "event",
-                              {"kind": "system", "text": "Invalid message."})
-            return
+        if not hasattr(client, "_rx_buf"):
+            client._rx_buf = bytearray()
+        client._rx_buf.extend(data)
+        while len(client._rx_buf) >= 2:
+            body_len = int.from_bytes(client._rx_buf[:2], "big")
+            if len(client._rx_buf) < 2 + body_len:
+                break
+            body = bytes(client._rx_buf[2:2 + body_len])
+            del client._rx_buf[:2 + body_len]
+            try:
+                msg = json.loads(body.decode("utf-8"))
+            except Exception:
+                await self._reply(client, "event",
+                                  {"kind": "system", "text": "Invalid message."})
+                continue
+            if isinstance(msg, dict):
+                await self._process_one_message(client, msg)
 
-        if not isinstance(msg, dict):
-            return
+    async def _process_one_message(self, client: BluetoothRemoteClient, msg: dict):
         mtype = msg.get("type")
         msg_id = str(msg.get("id", ""))
         payload = msg.get("payload") or {}

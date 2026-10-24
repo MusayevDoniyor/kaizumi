@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaizumi"
+version = "1.0.0"
+description = "Real-time, voice-driven AI companion for Windows"
+readme = "readme.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Musayev Doniyor (Kaizo)", email = "kaizo@example.com" }
+]
+keywords = ["ai", "assistant", "gemini", "voice", "desktop-automation", "multimodal"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Communications :: Chat",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "sounddevice>=0.5.0",
+    "google-genai>=1.0.0,<2.0.0",
+    "google-generativeai>=0.8.0,<1.0.0",
+    "pillow>=10.0.0",
+    "requests>=2.30.0",
+    "beautifulsoup4>=4.12.0",
+    "duckduckgo-search>=7.0.0",
+    "playwright>=1.40.0",
+    "pyautogui>=0.9.54",
+    "pyperclip>=1.9.0",
+    "pygetwindow>=0.0.9",
+    "mss>=9.0.0",
+    "psutil>=5.9.0",
+    "comtypes>=1.4.0",
+    "pycaw>=20240000",
+    "send2trash>=1.8.0",
+    "pywinauto>=0.6.8",
+    "keyboard>=0.13.5",
+    "pystray>=0.19.5",
+    "winotify>=1.1.0",
+    "python-pptx>=1.0.0",
+    "openpyxl>=3.1.0",
+    "pypdf>=5.0.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-api-python-client>=2.100.0",
+    "opencv-python>=4.9.0",
+    "numpy>=1.26.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+vision = [
+    "mediapipe>=0.10.0",
+    "ultralytics>=8.0.0",
+    "pytesseract>=0.3.10",
+    "openwakeword>=0.6.0",
+]
+bluetooth = [
+    "winrt-runtime>=2.0.0",
+    "winrt-Windows.Devices.Bluetooth>=2.0.0",
+    "winrt-Windows.Devices.Bluetooth.Advertisement>=2.0.0",
+    "winrt-Windows.Devices.Bluetooth.GenericAttributeProfile>=2.0.0",
+    "winrt-Windows.Storage.Streams>=2.0.0",
+]
+test = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+kaizumi = "main:main"

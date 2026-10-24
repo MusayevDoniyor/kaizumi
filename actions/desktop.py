@@ -59,54 +59,8 @@ def _is_safe_code(code: str) -> tuple[bool, str]:
     return True, "OK"
 
 
-def _ask_gemini_for_desktop_action(task: str) -> str:
-    """
-    Asks Gemini to generate safe Python/pyautogui code
-    to accomplish a desktop-related task.
-    """
-    import google.generativeai as genai
-
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel("gemini-2.5-flash")
-
-    desktop = str(_get_desktop())
-
-    prompt = f"""You are a Windows desktop automation expert.
-Generate safe Python code using ONLY these allowed modules:
-- pyautogui (mouse, keyboard, screenshots)
-- pathlib.Path (already imported as Path)
-- shutil (ONLY: copy2, copytree, move, disk_usage)
-- os.path (ONLY: exists, join, dirname, basename, splitext)
-- time (sleep only)
-- winreg (registry READ only)
-
-Desktop path: {desktop}
-
-Rules:
-- Output ONLY the Python code. No explanation, no markdown, no backticks.
-- NO file deletion (os.remove, shutil.rmtree, unlink, etc.)
-- NO subprocess calls
-- NO exec() or eval()
-- NO file write operations
-- If task cannot be done safely, output exactly: UNSAFE
-
-Task: {task}
-
-Python code:"""
-
-    try:
-        response = model.generate_content(prompt)
-        code = response.text.strip()
-        if code.startswith("```"):
-            lines = code.split("\n")
-            code = "\n".join(lines[1:-1]).strip()
-        return code
-    except Exception as e:
-        return f"ERROR: {e}"
-
-
 def _execute_generated_code(code: str) -> str:
-    """Safely executes Gemini-generated desktop automation code."""
+    """Safely executes desktop automation code."""
     safe, reason = _is_safe_code(code)
     if not safe:
         return f"⛔ Blocked for safety: {reason}"
@@ -155,6 +109,39 @@ def _execute_generated_code(code: str) -> str:
         return "\n".join(output_lines) if output_lines else "Task completed successfully."
     except Exception as e:
         return f"Execution error: {e}\n\nCode attempted:\n{code[:200]}"
+
+
+def _handle_desktop_task(task: str) -> str:
+    """Safely dispatches high-level desktop instructions to safe built-in handlers without exec()."""
+    t = task.lower().strip()
+    if any(k in t for k in ("wallpaper", "background")):
+        m = re.search(r'(https?://\S+)', task)
+        if m:
+            return set_wallpaper_from_web(m.group(1))
+        m_path = re.search(r'["\']([^"\']+\.(?:jpg|jpeg|png|bmp))["\']', task, re.I)
+        if m_path:
+            return set_wallpaper(m_path.group(1))
+        if "what" in t or "current" in t or "get" in t:
+            return get_current_wallpaper()
+        return "Please specify the image path or URL for the wallpaper."
+
+    if any(k in t for k in ("organize", "sort", "group")):
+        mode = "by_date" if "date" in t or "time" in t else "by_type"
+        return organize_desktop(mode=mode)
+
+    if any(k in t for k in ("clean", "clear", "tidy")):
+        return clean_desktop()
+
+    if any(k in t for k in ("list", "files", "show", "what's on")):
+        return list_desktop()
+
+    if any(k in t for k in ("stat", "space", "size", "count")):
+        return get_desktop_stats()
+
+    return (
+        "Desktop control supports: wallpaper, current_wallpaper, organize, clean, list, and stats. "
+        "For direct mouse or keyboard automation, use computer_control."
+    )
 
 def set_wallpaper(image_path: str) -> str:
     """Sets desktop wallpaper from a local image path."""
@@ -391,26 +378,12 @@ def desktop_control(
             actual_task = task or parameters.get("description", "")
             if not actual_task:
                 return "Please describe what you want to do on the desktop, sir."
-
-            print(f"[Desktop] 🤖 Asking Gemini: {actual_task}")
-            if player:
-                player.write_log("[Desktop] Generating action...")
-
-            code = _ask_gemini_for_desktop_action(actual_task)
-
-            if code == "UNSAFE":
-                result = "I cannot perform that desktop action safely, sir."
-            elif code.startswith("ERROR:"):
-                result = f"Could not generate action: {code}"
-            else:
-                print(f"[Desktop] ✅ Generated code:\n{code[:200]}")
-                result = _execute_generated_code(code)
+            result = _handle_desktop_task(actual_task)
 
         else:
             full_task = task or action
             if full_task:
-                code   = _ask_gemini_for_desktop_action(full_task)
-                result = _execute_generated_code(code) if code not in ("UNSAFE",) else "Cannot do that safely."
+                result = _handle_desktop_task(full_task)
             else:
                 result = "No action or task specified."
 

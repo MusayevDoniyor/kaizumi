@@ -190,8 +190,10 @@ class MainActivity : AppCompatActivity() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 mainHandler.post {
-                    setStatus("Connected. Discovering services…")
-                    gatt?.discoverServices()
+                    setStatus("Connected. Requesting MTU & discovering services…")
+                    if (!g.requestMtu(512)) {
+                        g.discoverServices()
+                    }
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 mainHandler.post {
@@ -204,6 +206,12 @@ class MainActivity : AppCompatActivity() {
                     authenticated = false
                     connectBtn.text = "Connect"
                 }
+            }
+        }
+
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            mainHandler.post {
+                g.discoverServices()
             }
         }
 
@@ -249,11 +257,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val rxBuffer = java.io.ByteArrayOutputStream()
+
     private fun onIncoming(data: ByteArray?) {
-        if (data == null || data.size < 2) return
-        val bodyLen = ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF)
-        if (data.size < 2 + bodyLen) return
-        val body = String(data, 2, bodyLen, StandardCharsets.UTF_8)
+        if (data == null || data.isEmpty()) return
+        synchronized(rxBuffer) {
+            rxBuffer.write(data)
+            var bytes = rxBuffer.toByteArray()
+            while (bytes.size >= 2) {
+                val bodyLen = ((bytes[0].toInt() and 0xFF) shl 8) or (bytes[1].toInt() and 0xFF)
+                if (bytes.size < 2 + bodyLen) break
+                val body = String(bytes, 2, bodyLen, StandardCharsets.UTF_8)
+                val remaining = bytes.copyOfRange(2 + bodyLen, bytes.size)
+                rxBuffer.reset()
+                rxBuffer.write(remaining)
+                bytes = remaining
+                handleParsedMessage(body)
+            }
+        }
+    }
+
+    private fun handleParsedMessage(body: String) {
         try {
             val msg = org.json.JSONObject(body)
             when (msg.optString("type")) {

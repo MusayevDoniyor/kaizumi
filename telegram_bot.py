@@ -206,14 +206,14 @@ def ping_bot(token: str) -> bool:
 
 
 BOT_COMMANDS = [
-    {"command": "start",       "description": "Boshlash / yordam"},
-    {"command": "help",        "description": "Yordam va misollar"},
-    {"command": "status",      "description": "Kaizumi statusi (mute/holat)"},
-    {"command": "mode",        "description": "Rejimni o'zgartirish (girlfriend, butler...)"},
-    {"command": "voice",       "description": "Ovozni o'zgartirish (Gemini ovozlari)"},
-    {"command": "mute",        "description": "Mikrofonni o'chirish"},
-    {"command": "unmute",      "description": "Mikrofonni yoqish"},
-    {"command": "screenshot",  "description": "Ekran rasmini yuborish"},
+    {"command": "start",       "description": "Start assistant and show help"},
+    {"command": "help",        "description": "Help and command examples"},
+    {"command": "status",      "description": "Check Kaizumi status and state"},
+    {"command": "mode",        "description": "Switch mode (normal, girlfriend, butler...)"},
+    {"command": "voice",       "description": "Switch voice (Gemini voice models)"},
+    {"command": "mute",        "description": "Mute microphone input"},
+    {"command": "unmute",      "description": "Unmute microphone input"},
+    {"command": "screenshot",  "description": "Capture and send desktop screenshot"},
 ]
 
 

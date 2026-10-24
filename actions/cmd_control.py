@@ -88,10 +88,15 @@ BLOCKED_PATTERNS = [
     r"\brm\s+-rf\b", r"\brmdir\s+/s\b", r"\bdel\s+/[fqs]",
     r"\bformat\b", r"\bdiskpart\b", r"\bfdisk\b",
     r"\breg\s+(delete|add)\b", r"\bbcdedit\b",
-    r"\bnet\s+localgroup\b",
+    r"\bnet\s+(localgroup|user)\b",
     r"\bshutdown\b", r"\brestart-computer\b",
     r"\bstop-process\b", r"\bkill\s+-9\b", r"\btaskkill\b",
     r"\beval\b", r"\b__import__\b",
+    r"\b-enc(odedcommand)?\b",
+    r"\bcertutil(\.exe)?\s+-(urlcache|decode)",
+    r"\bbitsadmin(\.exe)?\b",
+    r"\bdownloadstring\b",
+    r"\bvssadmin(\.exe)?\b",
 ]
 _BLOCKED_RE = re.compile("|".join(BLOCKED_PATTERNS), re.IGNORECASE)
 
@@ -104,17 +109,17 @@ def _is_safe(command: str) -> tuple[bool, str]:
 
 def _ask_gemini(task: str) -> str:
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=_get_api_key())
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
+        import api_keys
         prompt = (
             f"Convert this request to a single Windows CMD command.\n"
             f"Output ONLY the command. No explanation, no markdown, no backticks.\n"
             f"If unsafe or impossible, output: UNSAFE\n\n"
             f"Request: {task}\n\nCommand:"
         )
-        response = model.generate_content(prompt)
+        response = api_keys.generate_with_retry(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
         command  = response.text.strip().strip("`").strip()
         if command.startswith("```"):
             lines   = command.split("\n")
