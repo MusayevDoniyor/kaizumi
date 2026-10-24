@@ -1,4 +1,4 @@
-﻿# actions/wake_word.py
+# actions/wake_word.py
 # Kaizumi — Hands-free "Hey Kaizumi" wake word activation
 #
 # Uses openwakeword (free, local, on-device) to detect the phrase "hey kaizumi"
@@ -64,7 +64,7 @@ class WakeWordService:
 
     def load(self) -> bool:
         """Load the model so predictions work WITHOUT opening a mic stream.
-        Used by the phone bridge, which feeds PCM chunks manually."""
+        Used when feeding PCM chunks manually."""
         if self._model is not None:
             return True
         Model = _get_oww()

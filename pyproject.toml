@@ -65,13 +65,6 @@ vision = [
     "pytesseract>=0.3.10",
     "openwakeword>=0.6.0",
 ]
-bluetooth = [
-    "winrt-runtime>=2.0.0",
-    "winrt-Windows.Devices.Bluetooth>=2.0.0",
-    "winrt-Windows.Devices.Bluetooth.Advertisement>=2.0.0",
-    "winrt-Windows.Devices.Bluetooth.GenericAttributeProfile>=2.0.0",
-    "winrt-Windows.Storage.Streams>=2.0.0",
-]
 test = [
     "pytest>=8.0.0",
 ]

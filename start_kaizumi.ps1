@@ -30,7 +30,7 @@ Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" 
 Start-Sleep -Seconds 2
 
 Start-Process -FilePath $PY `
-    -ArgumentList @("-u", (Join-Path $ROOT "main.py"), "--remote") `
+    -ArgumentList @("-u", (Join-Path $ROOT "main.py")) `
     -WorkingDirectory $ROOT `
     -WindowStyle Normal
 

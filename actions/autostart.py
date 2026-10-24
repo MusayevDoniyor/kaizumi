@@ -15,17 +15,14 @@ def get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def _launch_command(remote: bool) -> str:
+def _launch_command(remote: bool = False) -> str:
     base   = get_base_dir()
     main   = base / "main.py"
     exe    = sys.executable
     pyw = Path(exe).with_name("pythonw.exe")
     if not pyw.exists():
         pyw = Path(exe)
-    cmd = f'"{pyw}" -u "{main}"'
-    if remote:
-        cmd += " --remote"
-    return cmd
+    return f'"{pyw}" -u "{main}"'
 
 
 def _set_run(cmd: str) -> None:
@@ -76,8 +73,7 @@ def autostart_action(
         if action in ("enable", "on", "add"):
             cmd = _launch_command(remote)
             _set_run(cmd)
-            suffix = "with the phone bridge (--remote)" if remote else "in local mode"
-            return f"Autostart enabled, sir. Kaizumi will launch at login {suffix}."
+            return "Autostart enabled, sir. Kaizumi will launch at login."
 
         if action in ("disable", "off", "remove", "delete"):
             removed = _del_run()

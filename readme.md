@@ -49,7 +49,6 @@ external APIs. It is **free to self-host** — you only need a Gemini API key
 | 👁️ **Visual awareness** | Screen analysis, screenshot understanding, webcam vision, click-on-command |
 | 🧠 **Persistent memory** | Remembers your name, preferences, projects, and plans across sessions |
 | 🖥️ **Full PC control** | Launch apps, manage files, run terminal commands, change settings |
-| 📱 **Bluetooth phone app** | Native Android app controls Kaizumi over BLE — no USB, no ADB, no website |
 | 💬 **Telegram control** | Remote-control from any Telegram chat (text + voice notes) |
 | 🕐 **Guardian** | Watches battery, RAM, CPU, disk, and temperature; alerts on thresholds |
 | 🗓️ **Google integration** | Gmail, Calendar, Drive via OAuth (device flow) |
@@ -59,7 +58,7 @@ external APIs. It is **free to self-host** — you only need a Gemini API key
 | 🔊 **30+ voices** | Pick from 30 Gemini voices (male/female, warm/clear/soft…) |
 | 🔇 **Hotkeys** | `F4` mute, `F5` cycle theme |
 | ⌨️ **Keyboard input** | Type commands in the UI instead of speaking |
-| 🗓️ **In-app scheduler** | "Remind me in 10 minutes" — fires with speech + phone notification |
+| 🗓️ **In-app scheduler** | "Remind me in 10 minutes" — fires with speech + desktop notification |
 | 🧠 **Agent mode** | Background `agent/` planner-executor handles multi-step tasks |
 | 🔒 **Safety gate** | Central risk model — HIGH-risk actions need your verbal confirmation |
 
@@ -70,7 +69,6 @@ external APIs. It is **free to self-host** — you only need a Gemini API key
 - **Windows 10 / 11**
 - **Python 3.11+** (tested on 3.14)
 - A microphone and speakers
-- Bluetooth adapter (optional — for the Android app)
 - A free [Gemini API key](https://aistudio.google.com/apikey)
 
 ---
@@ -113,7 +111,6 @@ Secrets can also be provided as environment variables (docker/CI friendly):
 | `KAIZUMI_GEMINI_API_KEYS` | `gemini_api_keys` (comma-separated) |
 | `KAIZUMI_TELEGRAM_TOKEN` | `telegram_bot_token` |
 | `KAIZUMI_TELEGRAM_CHAT_ID` | `telegram_chat_id` |
-| `KAIZUMI_BRIDGE_TOKEN` | Bluetooth-app token (auto-generated in `config/bridge_token.txt`) |
 
 System ready in minutes.
 
@@ -130,7 +127,6 @@ files).
 | `api_keys.json` | Gemini key(s), Telegram bot, Gmail, Google OAuth |
 | `guardian.json` | Health-guardian thresholds (battery, RAM, CPU, disk, temp) |
 | `smart_home.json` | Smart home devices (Home Assistant / webhook / simulated) |
-| `bridge_token.txt` | Auto-generated access token for the Bluetooth Android app |
 
 ### Guardian thresholds (`guardian.json`)
 
@@ -157,26 +153,11 @@ plus a per-device config (rooms, switches, lights, thermostats…).
 
 ## 📱 Remote Control
 
-Kaizumi has **two** remote channels: Bluetooth (native Android app) and
-Telegram. Both route commands through the **same Gemini Live session** as local
-voice, so every tool, the safety gate, and memory behave identically.
+Kaizumi includes Telegram remote control out of the box. It routes commands
+through the **same Gemini Live session** as local voice, so every tool, the safety
+gate, and memory behave identically from anywhere in the world.
 
-### 1. Bluetooth — native Android app (no USB / no ADB / no website)
-
-```bash
-python main.py --remote
-```
-
-- Starts a BLE GATT peripheral advertising as **"Kaizumi Remote"**.
-- Build & install the Android app from `android/` (see
-  [`android/README.md`](android/README.md)). The build token is automatically
-  generated in `config/bridge_token.txt` on first run.
-- Open the app, enter the token, tap **Connect** — it pairs via the
-  encrypted characteristic, authenticates, and shows *Authenticated*.
-- Type a command and tap **Send** — Kaizumi replies and streams live events
-  (tool status, phase changes, system alerts) to your phone.
-
-### 2. Telegram — remote control from anywhere
+### Telegram — remote control from anywhere
 
 1. Talk to [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token.
 2. Message your new bot once (this gives you the numeric chat id), then find
@@ -214,8 +195,7 @@ and enforces it centrally — no per-tool ad-hoc checks.
   token back, and each token works only once.
 - Secrets (API keys, tokens, passwords) are **redacted from logs** and never
   written to memory.
-- The Bluetooth app requires the access token (constant-time comparison);
-  Telegram is locked to your chat id.
+- Telegram remote control is locked to your verified chat id (fail-closed).
 - The desktop AI sandbox blocks `ctypes`/subprocess/escalation escapes and
   obfuscated variants of dangerous calls.
 - URL fetching (document/web QA) refuses loopback, private, link-local, and
@@ -294,9 +274,6 @@ kaizumi/
 ├── actions/                   # 40+ tool implementations
 ├── agent/                     # planner, executor, error recovery, task queue
 ├── memory/                    # persistent memory (CRUD, pruning, secrets)
-├── remote/                    # Bluetooth BLE transport (GATT peripheral)
-├── android/                   # native Android companion app (Kotlin)
-├── docs/PROTOCOL.md           # Bluetooth wire protocol spec
 ├── config/                    # configuration (git-ignored)
 └── tests/                     # unit tests (no API keys, no network)
 ```
@@ -311,12 +288,6 @@ kaizumi/
   in-conversation text — if you fork and see it, check your send paths.
 - **Microphone not detected:** check the default input device in Windows sound
   settings.
-- **Bluetooth "No bridge token":** run `python main.py --remote` once — the
-  token is generated automatically in `config/bridge_token.txt`. Or set
-  `KAIZUMI_BRIDGE_TOKEN` (min 16 chars).
-- **`winrt` not available:** Bluetooth transport needs
-  `winrt-Windows.Devices.Bluetooth.*` packages (see `requirements.txt`).
-  Without them, Kaizumi runs fine — only the Bluetooth channel is disabled.
 - **Voice/tool errors are spoken aloud** — read the log file in `logs/` for
   details (one file per run).
 - **Slow startup:** heavy ML packages (mediapipe, openwakeword) are imported

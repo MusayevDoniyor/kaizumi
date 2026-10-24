@@ -161,8 +161,8 @@ class ApiKeysExistTest(unittest.TestCase):
         self.assertFalse(self._exists())
 
 
-class SetupTokenTest(unittest.TestCase):
-    def test_create_bridge_token_generates_hex(self):
+class SetupConfigTest(unittest.TestCase):
+    def test_create_default_configs_creates_files(self):
         import importlib.util
         import tempfile
         from pathlib import Path
@@ -170,64 +170,20 @@ class SetupTokenTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location(
             "setup_mod", Path(__file__).resolve().parent.parent / "setup.py")
         setup = importlib.util.module_from_spec(spec)
-        # Only load the functions — do NOT run module-level main().
-        import types
         setup.__name__ = "setup_mod"
         spec.loader.exec_module(setup)
-        self.assertTrue(callable(setup.create_bridge_token))
+        self.assertTrue(callable(setup.create_default_configs))
 
         tmp = Path(tempfile.mkdtemp())
         try:
             old_root = setup.ROOT
             setup.ROOT = tmp
-            setup.create_bridge_token()
-            token = (tmp / "config" / "bridge_token.txt").read_text(encoding="utf-8").strip()
-            self.assertGreaterEqual(len(token), 16)
-            self.assertTrue(all(c in "0123456789abcdef" for c in token))
-            # Idempotent: a second call must not overwrite it.
-            setup.create_bridge_token()
-            self.assertEqual(
-                token, (tmp / "config" / "bridge_token.txt").read_text(encoding="utf-8").strip())
+            cfg_dir = tmp / "config"
+            cfg_dir.mkdir()
+            (cfg_dir / "test.example.json").write_text("{}", encoding="utf-8")
+            setup.create_default_configs()
+            self.assertTrue((cfg_dir / "test.json").exists())
             setup.ROOT = old_root
-        finally:
-            import shutil
-            shutil.rmtree(tmp, ignore_errors=True)
-
-
-class BridgeTokenTest(unittest.TestCase):
-    def test_auto_provisions_token_when_missing(self):
-        import tempfile
-        import remote.bluetooth_transport as bt
-        tmp = Path(tempfile.mkdtemp())
-        try:
-            old_file = bt.TOKEN_FILE
-            old_env = os.environ.get("KAIZUMI_BRIDGE_TOKEN")
-            os.environ.pop("KAIZUMI_BRIDGE_TOKEN", None)
-            bt.TOKEN_FILE = tmp / "bridge_token.txt"
-            token = bt.get_bridge_token()
-            self.assertGreaterEqual(len(token), 16)
-            self.assertTrue((tmp / "bridge_token.txt").exists())
-            # Second call returns the same persisted token.
-            self.assertEqual(token, bt.get_bridge_token())
-            bt.TOKEN_FILE = old_file
-            if old_env is not None:
-                os.environ["KAIZUMI_BRIDGE_TOKEN"] = old_env
-        finally:
-            import shutil
-            shutil.rmtree(tmp, ignore_errors=True)
-
-    def test_env_token_wins_over_generated(self):
-        import tempfile
-        import remote.bluetooth_transport as bt
-        tmp = Path(tempfile.mkdtemp())
-        old_env = os.environ.get("KAIZUMI_BRIDGE_TOKEN")
-        try:
-            bt.TOKEN_FILE = tmp / "bridge_token.txt"
-            os.environ["KAIZUMI_BRIDGE_TOKEN"] = "a" * 40
-            self.assertEqual(bt.get_bridge_token(), "a" * 40)
-            self.assertFalse((tmp / "bridge_token.txt").exists())
-            if old_env is not None:
-                os.environ["KAIZUMI_BRIDGE_TOKEN"] = old_env
         finally:
             import shutil
             shutil.rmtree(tmp, ignore_errors=True)

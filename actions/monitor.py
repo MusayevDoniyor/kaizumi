@@ -2,8 +2,7 @@
 # Kaizumi — PC monitoring alerts (CPU / RAM / battery / disk thresholds)
 #
 # Rules are stored in config/monitor.json. A background loop in main.py calls
-# check_rules() every N seconds and speaks + pushes any newly-triggered alert
-# to the connected phone.
+# check_rules() every N seconds and speaks + logs any newly-triggered alert.
 
 import json
 import sys

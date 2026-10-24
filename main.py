@@ -898,8 +898,8 @@ TOOL_DECLARATIONS = [
         "name": "schedule",
         "description": (
             "Sets a timed in-app action that fires after a number of seconds. "
-            "When it fires, Kaizumi speaks the message and sends a notification "
-            "to the connected phone. Also lists and cancels pending schedules. "
+            "When it fires, Kaizumi speaks the message and displays a notification. "
+            "Also lists and cancels pending schedules. "
             "Use for countdowns, 'remind me in X minutes', timers, or delayed tasks."
         ),
         "parameters": {
@@ -1063,14 +1063,12 @@ TOOL_DECLARATIONS = [
         "description": (
             "Controls whether Kaizumi starts automatically at Windows login. "
             "Actions: status | enable | disable. 'enable' registers Kaizumi in "
-            "the startup list (optionally with the Bluetooth phone transport via "
-            "'remote'). Use for 'start at login', 'run on startup', 'open automatically'."
+            "the startup list. Use for 'start at login', 'run on startup', 'open automatically'."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action": {"type": "STRING", "description": "status | enable | disable (default: status)"},
-                "remote": {"type": "BOOLEAN", "description": "For 'enable': also start the Bluetooth transport (default true)"}
+                "action": {"type": "STRING", "description": "status | enable | disable (default: status)"}
             },
             "required": []
         }
@@ -1097,7 +1095,7 @@ TOOL_DECLARATIONS = [
         "name": "monitor_alerts",
         "description": (
             "Sets PC monitoring alerts: warn when CPU, RAM, disk or battery "
-            "crosses a threshold, then Kaizumi speaks + notifies the phone. "
+            "crosses a threshold, then Kaizumi speaks + notifies the user. "
             "Actions: list | add | remove | check | status. "
             "Use for 'alert me when cpu goes above 90', 'warn me when my battery "
             "is below 20 percent', 'tell me if ram is high', 'monitor the pc'."
@@ -1174,7 +1172,7 @@ TOOL_DECLARATIONS = [
         "name": "email_watch",
         "description": (
             "Turns on or off an automatic watcher that alerts the user as soon "
-            "as new mail arrives in Gmail (speaks + notifies + phone push). "
+            "as new mail arrives in Gmail (speaks + desktop notification). "
             "Actions: enable | disable | status. Requires Gmail already "
             "configured. Use for 'alert me when I get new email', 'tell me when "
             "a new mail arrives', 'stop email alerts'."
@@ -1361,7 +1359,7 @@ class KaizumiLive:
         self.loop_guard     = LoopGuard()
         self._tool_handlers = self._build_tool_handlers()
         self.ui.on_text_command = self._on_text_command
-        self.enable_bluetooth = enable_bluetooth
+        self.enable_bluetooth = False
         self._schedules     = []
         self._sched_lock    = threading.Lock()
 
@@ -1393,9 +1391,6 @@ class KaizumiLive:
         try:
             if not self._ready or not self.session:
                 print("[WakeWord] ⚠️ Ignored — session not ready.")
-                return
-            if getattr(self, "_bt_bridge", None) is not None and self._bt_bridge.connected_count() > 0:
-                print("[WakeWord] 🚫 Ignored — phone remote active via Bluetooth.")
                 return
             self.ui.muted = False
             self.set_speaking(False)
@@ -1527,33 +1522,13 @@ class KaizumiLive:
                 self.ui.set_state("LISTENING")
         else:
             self.ui.set_state("ONLINE")
-        bt = getattr(self, "_bt_bridge", None)
-        bt_active = bt is not None and bt.connected_count() > 0
-        if bt_active:
-            state = {
-                PHASE_THINKING:  "THINKING",
-                PHASE_SPEAKING:  "SPEAKING",
-                PHASE_LISTENING: "MUTED" if self.ui.muted else "LISTENING",
-            }.get(phase, "ONLINE")
-            self.broadcast_remote({"type": "phase", "state": state})
-
     def broadcast_remote(self, payload: dict):
-        """Send a JSON event to every connected Bluetooth phone (async-safe)."""
-        bt = getattr(self, "_bt_bridge", None)
-        if bt is None or not self._loop:
-            return
-        try:
-            asyncio.run_coroutine_threadsafe(
-                bt.broadcast(payload), self._loop
-            )
-        except Exception:
-            pass
+        """Legacy remote event broadcaster (no-op)."""
+        pass
 
     def _safely_send(self, client, payload: dict):
-        """Send one JSON event to one Bluetooth phone (async-safe)."""
-        if not self._loop:
-            return
-        client.send_json_sync(payload)
+        """Legacy single-client sender (no-op)."""
+        pass
 
     def _current_phase(self) -> str:
         with self._phase_lock:
@@ -2062,10 +2037,7 @@ class KaizumiLive:
             )
         self._human_confirmed = False
 
-        self.broadcast_remote({"type": "tool", "name": name, "status": "start",
-                               "summary": " ".join(
-                                   str(v) for v in sanitize(name, args).values()
-                               )[:120]})
+
         try:
             # Uniform dispatch through the shared handler table so every
             # declared tool gets a timeout and works in both voice and
@@ -2088,11 +2060,7 @@ class KaizumiLive:
                 self.speak(f"Sir, {name} hit an error. {str(e)[:80]}")
             except Exception:
                 pass
-            self.broadcast_remote({"type": "tool", "name": name, "status": "error",
-                                   "summary": str(e)[:120]})
 
-        self.broadcast_remote({"type": "tool", "name": name, "status": "done",
-                               "summary": str(result)[:120]})
 
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
@@ -2107,8 +2075,8 @@ class KaizumiLive:
         )
 
     def _schedule(self, args: dict) -> str:
-        """In-app timed actions: when they fire, Kaizumi speaks + notifies the
-        phone instead of relying on Windows Task Scheduler."""
+        """In-app timed actions: when they fire, Kaizumi speaks reminders
+        instead of relying on Windows Task Scheduler."""
         action = str(args.get("action", "list")).lower().strip()
         now = time.time()
 
@@ -2128,7 +2096,7 @@ class KaizumiLive:
                 })
                 when = self._fmt_time(now + seconds)
                 return (f"Scheduled: '{message}' in {seconds}s (ID {sid}, fires at {when}). "
-                        "I will speak up and notify your phone.")
+                        "I will speak up and display a notification.")
 
             if action in ("cancel", "delete", "remove"):
                 try:
@@ -2157,7 +2125,7 @@ class KaizumiLive:
             return "?"
 
     async def _scheduler_loop(self):
-        """Fire due scheduled actions — speak + notify phone, once each."""
+        """Fire due scheduled actions — speak + notify, once each."""
         try:
             from actions.notifications import notify
         except Exception:
@@ -2176,7 +2144,6 @@ class KaizumiLive:
                     if self.session:
                         self.speak(msg)
                     self.ui.write_log(msg)
-                    self.broadcast_remote({"type": "system", "text": msg})
                     if notify:
                         try:
                             await asyncio.to_thread(
@@ -2199,7 +2166,6 @@ class KaizumiLive:
                 for text in alerts:
                     print(f"[Monitor] 🔔 {text}")
                     self.ui.write_log(text)
-                    self.broadcast_remote({"type": "system", "text": text})
                     if self.session:
                         self.speak(text)
             except Exception as e:
@@ -2209,7 +2175,6 @@ class KaizumiLive:
                 for text in alerts:
                     print(f"[Guardian] 🔔 {text}")
                     self.ui.write_log(text)
-                    self.broadcast_remote({"type": "system", "text": text})
                     from actions.notifications import notify
                     await asyncio.to_thread(
                         notify,
@@ -2223,7 +2188,6 @@ class KaizumiLive:
                 for text in await asyncio.to_thread(check_email_watch):
                     print(f"[Email] 🔔 {text}")
                     self.ui.write_log(text)
-                    self.broadcast_remote({"type": "system", "text": text})
                     from actions.notifications import notify
                     await asyncio.to_thread(
                         notify,
@@ -2418,15 +2382,12 @@ class KaizumiLive:
         phase   = self._current_phase().upper()
         mode, mood = _get_style_from_memory(load_memory())
         voice   = _get_voice_from_memory(load_memory())
-        bt = getattr(self, "_bt_bridge", None)
-        clients = bt.connected_count() if bt is not None else 0
         now     = datetime.now().strftime("%A, %B %d, %Y — %I:%M %p")
         return (
             "📊 <b>Kaizumi statusi</b>\n"
             f"🕒 {tg.html_escape(now)}\n"
             f"🎙 Mikrofon: <b>{'🔇 MUTED' if self.ui.muted else '🎤 LIVE'}</b>\n"
             f"🔄 Holat: <b>{tg.html_escape(phase)}</b>\n"
-            f"📱 Ulangan telefonlar: {clients}\n"
             f"🧭 Rejim: <b>{tg.html_escape(mode)}</b>  |  "
             f"Kayfiyat: <b>{tg.html_escape(mood)}</b>\n"
             f"🗣 Ovoz: <b>{tg.html_escape(voice)}</b>"
@@ -2598,7 +2559,7 @@ class KaizumiLive:
                 while True:
                     await asyncio.sleep(0.1)
         except Exception as e:
-            print(f"[KAIZUMI] ⚠️ Microphone unavailable ({e}) — continuing in text/remote mode")
+            print(f"[KAIZUMI] ⚠️ Microphone unavailable ({e}) — continuing in text mode")
             self.ui.write_log(f"SYS: Mic unavailable ({str(e)[:60]}).")
             while True:
                 await asyncio.sleep(3600)
@@ -2662,15 +2623,7 @@ class KaizumiLive:
                                 self.ui.write_log(f"Kaizumi: {full_out}")
                             out_buf = []
 
-                            bt = getattr(self, "_bt_bridge", None)
-                            if bt is not None:
-                                try:
-                                    if full_in:
-                                        await bt.forward_transcript("user", full_in)
-                                    if full_out:
-                                        await bt.forward_transcript("kaizumi", full_out)
-                                except Exception as e:
-                                    print(f"[Bluetooth] ⚠️ forward: {e}")
+
 
                             self._update_rolling(full_in, full_out)
 
@@ -2751,17 +2704,7 @@ class KaizumiLive:
     async def run(self):
         self._loop = asyncio.get_event_loop()
 
-        bt_bridge = None
-        if self.enable_bluetooth:
-            # Bluetooth phone transport (no USB/ADB). Silently off if winrt
-            # isn't installed or the adapter can't do BLE peripheral.
-            try:
-                from remote.bluetooth_transport import start_bluetooth_bridge
-                bt_bridge = await start_bluetooth_bridge(self)
-            except Exception as e:
-                bt_bridge = None
-                log(f"Bluetooth transport OFF: {e}", level="WARN")
-            self._bt_bridge = bt_bridge
+
 
         tg_task = None
         if self.telegram_token:
@@ -2857,12 +2800,7 @@ class KaizumiLive:
                     tg_task.cancel()
                 except Exception:
                     pass
-            if bt_bridge:
-                try:
-                    from remote.bluetooth_transport import close_bluetooth_bridge
-                    close_bluetooth_bridge()
-                except Exception:
-                    pass
+
 
 
 def _tk_exception_handler(exc_type, exc_value, tb):
@@ -2879,11 +2817,9 @@ def main():
     log(f"Base dir: {BASE_DIR}\nLog file: {log_file}")
     ui = KaizumiUI("face.png")
 
-    enable_bluetooth = "--remote" in sys.argv[1:]
-
     def runner():
         ui.wait_for_api_key()
-        kaizumi = KaizumiLive(ui, enable_bluetooth=enable_bluetooth)
+        kaizumi = KaizumiLive(ui)
         kaizumi.attach_tray()
         try:
             asyncio.run(kaizumi.run())
