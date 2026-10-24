@@ -252,7 +252,7 @@ timeouts and a loop guard that stops identical-arg / ping-pong tool loops.
 - **Monitor** (`actions/monitor.py`) watches user-defined rules (CPU, RAM,
   battery, disk, temperature) and pushes alerts.
 - **In-app scheduler** (`main._scheduler_loop`) fires reminders with speech +
-  phone notification — no Windows Task Scheduler needed.
+  desktop notification — no Windows Task Scheduler needed.
 - **Wake word** (`actions/wake_word.py`) uses openwakeword on-device for
   hands-free "Hey Kaizumi" activation (you can record your own wake word).
 - **Logging** (`logger.py`) writes one log file per run under `logs/` and

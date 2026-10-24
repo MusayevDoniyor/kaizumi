@@ -15,7 +15,7 @@ def get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def _launch_command(remote: bool = False) -> str:
+def _launch_command() -> str:
     base   = get_base_dir()
     main   = base / "main.py"
     exe    = sys.executable
@@ -59,7 +59,6 @@ def autostart_action(
     """Autostart control: status | enable | disable"""
     params = parameters or {}
     action = str(params.get("action", "status")).lower().strip()
-    remote = str(params.get("remote", "true")).lower() in ("true", "1", "yes", "on")
 
     try:
         if action in ("status", "check"):
@@ -71,7 +70,7 @@ def autostart_action(
                     f"Command: {val}")
 
         if action in ("enable", "on", "add"):
-            cmd = _launch_command(remote)
+            cmd = _launch_command()
             _set_run(cmd)
             return "Autostart enabled, sir. Kaizumi will launch at login."
 
