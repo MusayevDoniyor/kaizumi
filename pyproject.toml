@@ -10,7 +10,8 @@ readme = "readme.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
-    { name = "Musayev Doniyor (Kaizo)", email = "kaizo@example.com" }
+    { name = "Musayev Doniyor (Kaizo)", email = "doniyormusayev2009@gmail.com" },
+    { name = "Otabek Abduvaliyev", email = "otabek@example.com" }
 ]
 keywords = ["ai", "assistant", "gemini", "voice", "desktop-automation", "multimodal"]
 classifiers = [

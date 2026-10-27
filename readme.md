@@ -41,7 +41,9 @@ Equipped with screen awareness, local computer vision, persistent episodic memor
 - **AI & Systems Researchers:** Exploring practical real-time multimodal tool use, human-in-the-loop safety gates, and low-latency audio pipelines.
 - **Open-Source Enthusiasts:** Looking for a clean, extensible codebase with zero telemetry, zero forced subscriptions, and full self-hosting control.
 
-> 👤 **Author & Maintainer:** Doniyor Musayev ([@MusayevDoniyor](https://github.com/MusayevDoniyor)) · Nickname **Kaizo**  
+> 👥 **Authors & Collaborators:**  
+> - **Doniyor Musayev (Kaizo)** ([@MusayevDoniyor](https://github.com/MusayevDoniyor)) — Lead author & maintainer  
+> - **Otabek Abduvaliyev** ([@OtabekAbduvaliyev](https://github.com/OtabekAbduvaliyev)) — Collaborator & contributor  
 > 📜 **License:** [MIT Open Source License](LICENSE)
 
 ---
@@ -259,4 +261,4 @@ This project is licensed under the **[MIT License](LICENSE)** — free for perso
 - Powered by [Google Gemini Live API](https://ai.google.dev/).
 - Wake-word detection powered by [openWakeWord](https://github.com/dscripka/openWakeWord).
 - Browser automation powered by [Playwright](https://playwright.dev/).
-- Built with pride by Doniyor Musayev (Kaizo).
+- Built with pride by Doniyor Musayev (Kaizo) and Otabek Abduvaliyev.
