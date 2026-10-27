@@ -100,18 +100,21 @@ def _is_private_target(url: str) -> bool:
 def _extract_url(url: str) -> str:
     if not _REQUESTS:
         raise RuntimeError("requests is not installed.")
-    if _is_private_target(url):
-        raise RuntimeError("I can't fetch internal or private network URLs, sir.")
-    if "169.254.169.254" in url or "metadata.google.internal" in url:
-        raise RuntimeError("That URL is off-limits, sir.")
+    from urllib.parse import urljoin
     headers = {"User-Agent": "Mozilla/5.0 (Kaizumi/assistant)"}
-    resp = requests.get(url, headers=headers, timeout=20)
-    resp.raise_for_status()
-    # Guard redirect chains too (a public URL can redirect to internal hosts).
-    if resp.history:
-        for hop in resp.history + [resp]:
-            if _is_private_target(hop.url):
-                raise RuntimeError("That URL redirects to an internal network, sir.")
+    current_url = url
+    resp = None
+    for _ in range(5):
+        if _is_private_target(current_url) or "169.254.169.254" in current_url or "metadata.google.internal" in current_url:
+            raise RuntimeError("That URL is off-limits or points to an internal network, sir.")
+        resp = requests.get(current_url, headers=headers, timeout=20, allow_redirects=False)
+        if 300 <= resp.status_code < 400 and "Location" in resp.headers:
+            current_url = urljoin(current_url, resp.headers["Location"])
+            continue
+        resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError("Too many redirects, sir.")
     if _BS4:
         soup = BeautifulSoup(resp.text, "html.parser")
         for tag in soup(["script", "style", "noscript"]):

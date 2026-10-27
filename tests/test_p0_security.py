@@ -41,6 +41,20 @@ class DocumentQaSsrTest(unittest.TestCase):
         self.assertFalse(self._is_private_target("http://example.com/x"))
         self.assertFalse(self._is_private_target("https://en.wikipedia.org/x"))
 
+    def test_redirect_to_private_target_refused(self):
+        from unittest.mock import patch, MagicMock
+        from actions import document_qa
+
+        # Mock requests.get to return a 302 redirect pointing to loopback
+        redirect_mock = MagicMock()
+        redirect_mock.status_code = 302
+        redirect_mock.headers = {"Location": "http://127.0.0.1:8080/internal"}
+
+        with patch("requests.get", return_value=redirect_mock):
+            with self.assertRaises(RuntimeError) as ctx:
+                document_qa._extract_url("http://example.com/redirect-me")
+            self.assertIn("internal", str(ctx.exception).lower())
+
 
 class DesktopSandboxTest(unittest.TestCase):
     def setUp(self):

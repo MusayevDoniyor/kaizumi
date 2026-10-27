@@ -3,325 +3,260 @@
 </p>
 
 <p align="center">
-  <b>Your real-time, voice-driven AI companion for Windows</b><br>
-  <i>It hears you. It sees your screen. It acts.</i>
+  <b>Real-Time, Voice-Driven Multimodal AI Companion for Windows</b><br>
+  <i>Sub-second speech-to-speech interaction, desktop vision, autonomous tooling, and hardened local automation.</i>
 </p>
 
 <p align="center">
-  <a href="#-features">Features</a> •
+  <a href="https://github.com/MusayevDoniyor/kaizumi/actions/workflows/ci.yml"><img src="https://github.com/MusayevDoniyor/kaizumi/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg" alt="Python Version"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg" alt="Platform: Windows"></a>
+  <a href="https://ai.google.dev/"><img src="https://img.shields.io/badge/AI-Google%20Gemini%20Live-8E75C2.svg" alt="Gemini Live"></a>
+</p>
+
+<p align="center">
+  <a href="#-project-overview">Overview</a> •
+  <a href="#-system-architecture">Architecture</a> •
+  <a href="#-features--tooling">Features & Tools</a> •
   <a href="#-quick-start">Quick Start</a> •
+  <a href="#-security--safety-model">Security Model</a> •
   <a href="#-configuration">Configuration</a> •
-  <a href="#-remote-control">Remote Control</a> •
-  <a href="#-safety-model">Safety</a> •
-  <a href="#-tools">Tools</a> •
-  <a href="#-how-it-works">How it works</a> •
-  <a href="#-tests">Tests</a>
+  <a href="#-telegram-remote-control">Telegram Remote</a> •
+  <a href="#-testing--verification">Testing</a> •
+  <a href="#-roadmap">Roadmap</a> •
+  <a href="#-contributing">Contributing</a>
 </p>
 
 ---
 
-# 🤖 Kaizumi
+## 💡 Project Overview
 
-**Kaizumi** is a real-time, voice-driven AI assistant that lives on your Windows
-computer. It can **hear** you, **see** your screen, understand context, answer
-with a **natural human-like voice**, and **take action** — launching apps,
-managing files, running commands, sending messages, controlling smart-home
-devices, creating presentations, and much more.
+**Kaizumi** is an open-source, on-device AI companion built for Windows 10 and 11. Unlike traditional text-based chatbots or turn-by-turn speech wrappers, Kaizumi connects directly to Google's **Gemini Live API** via bidirectional WebSocket audio streaming (PCM 24kHz/16kHz), delivering natural, conversational speech with human-level latency and real-time interruption (barge-in) support.
 
-Kaizumi runs **locally** on your Windows machine; AI inference and optional
-integrations (Gemini, Telegram, Google, weather, flights, smart home) use
-external APIs. It is **free to self-host** — you only need a Gemini API key
-(free tier available at [Google AI Studio](https://aistudio.google.com/apikey)).
+Equipped with screen awareness, local computer vision, persistent episodic memory, and a hardened system dispatch engine, Kaizumi can monitor system metrics, manage windows and files, write and run automation scripts, conduct research, control smart home devices, and guard user privacy—all while maintaining an animated cyber-themed desktop UI.
 
-> 👤 **Project owner:** Musayev Doniyor ([GitHub](https://github.com/MusayevDoniyor)) · nick **Kaizo**
+### Who Is Kaizumi For?
+- **Developers & Power Users:** Seeking a customizable, local-first alternative to proprietary desktop assistants.
+- **AI & Systems Researchers:** Exploring practical real-time multimodal tool use, human-in-the-loop safety gates, and low-latency audio pipelines.
+- **Open-Source Enthusiasts:** Looking for a clean, extensible codebase with zero telemetry, zero forced subscriptions, and full self-hosting control.
 
-> ⚠️ **Security note:** This project was made public from a personal codebase.
-> Before your first run, open `config/api_keys.json` and confirm it only
-> contains your own keys. **Never commit that file** — it is git-ignored.
+> 👤 **Author & Maintainer:** Doniyor Musayev ([@MusayevDoniyor](https://github.com/MusayevDoniyor)) · Nickname **Kaizo**  
+> 📜 **License:** [MIT Open Source License](LICENSE)
 
 ---
 
-## ✨ Features
+## 🏗️ System Architecture
 
-| Area | What Kaizumi does |
-|------|-------------------|
-| 🎙️ **Real-time voice** | Natural, low-latency speech-to-speech conversation in any language |
-| 👁️ **Visual awareness** | Screen analysis, screenshot understanding, webcam vision, click-on-command |
-| 🧠 **Persistent memory** | Remembers your name, preferences, projects, and plans across sessions |
-| 🖥️ **Full PC control** | Launch apps, manage files, run terminal commands, change settings |
-| 💬 **Telegram control** | Remote-control from any Telegram chat (text + voice notes) |
-| 🕐 **Guardian** | Watches battery, RAM, CPU, disk, and temperature; alerts on thresholds |
-| 🗓️ **Google integration** | Gmail, Calendar, Drive via OAuth (device flow) |
-| 🧩 **53 tools** | Web search, reminders, PDF/Word/Excel/PowerPoint, YouTube, weather, translation, and more |
-| 🎭 **Modes & moods** | 6 modes × 4 moods change Kaizumi's personality |
-| 🎨 **Themed UI** | 4 themes (cyber, ocean, aurora, sunset) + animated canvas |
-| 🔊 **30+ voices** | Pick from 30 Gemini voices (male/female, warm/clear/soft…) |
-| 🔇 **Hotkeys** | `F4` mute, `F5` cycle theme |
-| ⌨️ **Keyboard input** | Type commands in the UI instead of speaking |
-| 🗓️ **In-app scheduler** | "Remind me in 10 minutes" — fires with speech + desktop notification |
-| 🧠 **Agent mode** | Background `agent/` planner-executor handles multi-step tasks |
-| 🔒 **Safety gate** | Central risk model — HIGH-risk actions need your verbal confirmation |
+Kaizumi operates on a decoupled, asynchronous event loop powered by Python `asyncio`. Audio input and output streams run independently from the UI loop and background watchdog tasks, guaranteeing that hardware disconnections, high tool latency, or network hiccups never freeze the application.
+
+```mermaid
+flowchart TD
+    subgraph UserInterface["Desktop Presentation"]
+        UI["Tkinter Canvas Engine<br>(High-DPI / Cyber Themes)"]
+        Tray["System Tray & Global Hotkeys<br>(F4 Mute / F5 Theme)"]
+    end
+
+    subgraph AudioEngine["Audio Pipeline (sounddevice)"]
+        Mic["Microphone Stream<br>(16kHz PCM In)"]
+        Spk["Speaker Stream<br>(24kHz PCM Out)"]
+        Wake["openWakeWord Engine<br>('Hey Kaizumi')"]
+    end
+
+    subgraph CoreEngine["Kaizumi Live Core (main.py)"]
+        LiveWS["Gemini Live WebSocket Client<br>(Model: gemini-2.5-flash)"]
+        SessionMgr["Session & Backoff Manager<br>(429 Auto-Rotation)"]
+        LoopGuard["LoopGuard<br>(Anti Ping-Pong)"]
+    end
+
+    subgraph SafetyGate["Security & Verification (safety.py)"]
+        RiskEngine["Central Risk Classifier<br>(LOW / MEDIUM / HIGH)"]
+        ConsentGate["Verbal Confirmation Gate<br>(One-Time Token Binding)"]
+        SSRF["SSRF Guard<br>(Pre-Hop DNS Validation)"]
+    end
+
+    subgraph ToolDispatch["Execution Subsystems"]
+        DesktopAction["Desktop & Windows Automation<br>(pywinauto / pygetwindow / mss)"]
+        ShellAction["Restricted Shell Dispatcher<br>(Regex Hardened cmd / powershell)"]
+        VisionSuite["Local Vision Suite<br>(OpenCV / MediaPipe / SFace)"]
+        DocQA["Document & Web Engine<br>(PDF / Office / Playwright)"]
+        Watchdogs["System Guardian & Alerts<br>(psutil Telemetry)"]
+    end
+
+    Mic --> LiveWS
+    LiveWS --> Spk
+    Wake --> Mic
+    UI <--> CoreEngine
+    Tray <--> CoreEngine
+    LiveWS <--> SessionMgr
+    SessionMgr --> SafetyGate
+    SafetyGate --> ConsentGate
+    ConsentGate --> ToolDispatch
+    ToolDispatch --> LoopGuard
+    LoopGuard --> LiveWS
+```
+
+---
+
+## ✨ Features & Tooling
+
+Kaizumi exposes **53 declarative tool definitions** to the model. Each tool is executed with hard timeouts, error recovery, and risk boundary checks.
+
+| Category | Capabilities & Implemented Tools | Local vs. Cloud |
+| :--- | :--- | :--- |
+| 🎙️ **Real-Time Voice** | Bidirectional live speech streaming, low-latency turn-taking, barge-in support, 30+ customizable Gemini voices, wake-word listener (`actions/wake_word.py`). | Cloud LLM + Local Audio |
+| 🖥️ **Windows Automation** | Window management, app launching, typing, mouse control, file organization, media playback, system settings (volume/brightness/lock). | 100% Local |
+| 🔒 **Safety & Risk Gate** | Centralized risk evaluation (`safety.py`). Destructive actions require explicit verbal consent bound to a single-use token (`confirm_token`). | 100% Local |
+| 👁️ **Visual Awareness** | Screen capture understanding, active window inspection, webcam vision, privacy face blur, gesture recognition, and local arcade games. | Local CV + Cloud VLM |
+| 🧠 **Persistent Memory** | Episodic memory (`memory/memory.py`) extracting preferences, user details, and plans across restarts with TTL expiration and automatic secret redaction. | 100% Local |
+| 🛡️ **Guardian Telemetry** | Background watchdog monitoring battery level, RAM consumption, CPU spikes, disk space, and temperatures with spoken alerts. | 100% Local |
+| 📄 **Document & Web QA** | Instant question-answering over PDF, DOCX, PPTX, XLSX, and web pages with SSRF-protected HTTP fetching. | Local parsing + Cloud QA |
+| 🌐 **Headless Browser** | Automated Chromium browsing via Playwright (`actions/browser_control.py`) for live web navigation, clicking, typing, and scraping. | Local Browser |
+| 💬 **Telegram Control** | Secure remote control from any Telegram chat (`telegram_bot.py`). Supports text commands, voice note transcription, and screen snapshots. | Cloud Polling (Fail-Closed) |
+| 🏠 **Smart Home** | Integration with Home Assistant, webhooks, or local simulated smart devices. | Local / LAN |
 
 ---
 
 ## 📦 Requirements
 
-- **Windows 10 / 11**
-- **Python 3.11+** (tested on 3.14)
-- A microphone and speakers
-- A free [Gemini API key](https://aistudio.google.com/apikey)
+- **Operating System:** Windows 10 or Windows 11 (64-bit).
+- **Python Runtime:** Python **3.11, 3.12, 3.13, or 3.14**.
+- **Hardware:**
+  - Standard microphone and speakers / headphones.
+  - Webcam (optional, only required for computer vision / face verification features).
+- **API Key:** A free Google Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
 
 ---
 
 ## 🚀 Quick Start
 
-```bash
+### 1. Clone the Repository
+```powershell
 git clone https://github.com/MusayevDoniyor/kaizumi.git
 cd kaizumi
+```
 
+### 2. Create and Activate Virtual Environment
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.\.venv\Scripts\activate
+```
 
-python setup.py        # installs deps, Playwright browsers, creates config files
+### 3. Run One-Shot Setup
+The setup script installs pinned dependencies, prepares Playwright Chromium, and initializes default configuration templates:
+```powershell
+python setup.py
+```
+
+### 4. Configure Your Gemini API Key
+Open `config/api_keys.json` and insert your Gemini API key:
+```jsonc
+{
+    "gemini_api_key": "AIzaSyYourActualKeyHere...",
+    "gemini_api_keys": [],
+    "telegram_bot_token": "",
+    "telegram_chat_id": null
+}
+```
+*(Alternatively, set the `KAIZUMI_GEMINI_API_KEY` environment variable in your shell).*
+
+### 5. Launch Kaizumi
+```powershell
 python main.py
 ```
+Kaizumi's animated interface will appear on your screen and greet you. You can speak naturally through your microphone or type commands directly into the terminal or UI console.
 
-On first launch the app shows a setup dialog asking for your Gemini API key —
-or configure it manually in `config/api_keys.json`:
+---
 
-```jsonc
-// config/api_keys.json
-{
-    "gemini_api_key": "AIzaSy...",                          // required
-    "gemini_api_keys": ["AIzaSy...", "AIzaSy..."],          // optional: multi-key rotation on 429
-    "telegram_bot_token": "",                               // optional: Telegram remote control
-    "telegram_chat_id": null,                               // optional: your chat id (numeric)
-    "gmail_user": "",                                       // optional: Gmail address
-    "gmail_app_password": "",                               // optional: Gmail app password
-    "google_client_id": "",                                 // optional: Google OAuth
-    "google_client_secret": ""                              // optional: Google OAuth
-}
+## 🛡️ Security & Safety Model
+
+Because Kaizumi possesses desktop and command execution privileges, security is treated as an architectural invariant:
+
+1. **Centralized Risk Hierarchy (`safety.py`):**
+   - **`Risk.LOW`:** Read-only operations (web search, reading documents, weather, time, system status). Never require confirmation.
+   - **`Risk.MEDIUM`:** Reversible state changes (opening applications, setting timers, clipboard changes).
+   - **`Risk.HIGH`:** Irreversible or destructive operations (deleting files, running arbitrary shell commands, killing system processes, rebooting).
+2. **Out-of-Band Human Verbal Consent:**
+   - The LLM is technically barred from executing `Risk.HIGH` tools autonomously.
+   - When a high-risk action is invoked, the engine generates an ephemeral, unguessable cryptographic token (`confirm_token`).
+   - The engine halts execution, explains what it intends to do, and waits for the human user to explicitly say "yes", "confirm", or "proceed". Replay attacks or forged approval tokens are rejected immediately.
+3. **Pre-Hop SSRF Protection:**
+   - The document and web QA engine resolves target hostnames before sending requests.
+   - Requests targeting private subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`), link-local IPs (`169.254.0.0/16`), IPv6 loopbacks (`::1`), or cloud metadata endpoints (`metadata.google.internal`) are blocked.
+   - HTTP redirect chains are inspected hop-by-hop prior to following.
+4. **Secret Redaction:**
+   - Sensitive arguments (passwords, tokens, API keys) are masked before reaching log files, UI displays, or persistent memory.
+5. **No Blind `exec()` / `eval()`:**
+   - The desktop automation pipeline dispatches declarative tasks through structured handlers, rejecting dynamic code execution.
+
+---
+
+## ⚙️ Configuration & Environment Variables
+
+All settings reside in the git-ignored `config/` directory. You can configure Kaizumi either through JSON files or environment variables:
+
+| Environment Variable | Replaces Config Field | Description |
+| :--- | :--- | :--- |
+| `KAIZUMI_GEMINI_API_KEY` | `api_keys.json -> gemini_api_key` | Primary Google Gemini API key. |
+| `KAIZUMI_GEMINI_API_KEYS` | `api_keys.json -> gemini_api_keys` | Comma-separated list of keys for automatic failover on 429 quota exhaustion. |
+| `KAIZUMI_TELEGRAM_TOKEN` | `api_keys.json -> telegram_bot_token` | Telegram Bot token from [@BotFather](https://t.me/BotFather). |
+| `KAIZUMI_TELEGRAM_CHAT_ID` | `api_keys.json -> telegram_chat_id` | Numeric Telegram user ID authorized to control Kaizumi. |
+
+---
+
+## 💬 Telegram Remote Control
+
+Kaizumi includes an optional, zero-port-forwarding Telegram remote control daemon:
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the bot token.
+2. Obtain your numeric user ID using `@userinfobot`.
+3. Add both values to `config/api_keys.json`.
+4. Start Kaizumi. The daemon polls Telegram using long-polling.
+
+**Fail-Closed Security:** The bot silently drops and ignores any messages coming from unauthorized chat IDs. Supported commands include `/status`, `/mute`, `/unmute`, `/mode`, `/voice`, `/screenshot`, and `/help`. Voice notes sent to the bot are transcribed and routed through the same Gemini session as local speech.
+
+---
+
+## 🧪 Testing & Verification
+
+Kaizumi includes an automated unit test suite covering security gates, command sanitization, hardware decoupling, memory retention, and tool resilience.
+
+Run all tests locally:
+```powershell
+pytest tests -v
 ```
 
-Secrets can also be provided as environment variables (docker/CI friendly):
+All 97 unit tests execute in under 25 seconds using in-memory mocks without consuming external API quota or requiring network access.
 
-| Env var | Replaces |
-|---------|----------|
-| `KAIZUMI_GEMINI_API_KEY` | `gemini_api_key` |
-| `KAIZUMI_GEMINI_API_KEYS` | `gemini_api_keys` (comma-separated) |
-| `KAIZUMI_TELEGRAM_TOKEN` | `telegram_bot_token` |
-| `KAIZUMI_TELEGRAM_CHAT_ID` | `telegram_chat_id` |
-
-System ready in minutes.
+Continuous integration is enforced via [GitHub Actions](.github/workflows/ci.yml) across Windows runners on Python 3.11, 3.12, and 3.13.
 
 ---
 
-## ⚙️ Configuration
+## 🗺️ Roadmap
 
-All configuration lives in `config/`. `python setup.py` copies any
-`*.example.json` to a real `.json` automatically (it never overwrites existing
-files).
-
-| File | Purpose |
-|------|---------|
-| `api_keys.json` | Gemini key(s), Telegram bot, Gmail, Google OAuth |
-| `guardian.json` | Health-guardian thresholds (battery, RAM, CPU, disk, temp) |
-| `smart_home.json` | Smart home devices (Home Assistant / webhook / simulated) |
-
-### Guardian thresholds (`guardian.json`)
-
-```jsonc
-{
-    "enabled": true,
-    "battery_low": 20,        // warn when battery drops below 20%
-    "battery_full_plugged": 100,
-    "disk_min_free_gb": 10,   // warn when free disk < 10 GB
-    "ram_high": 90,           // warn when RAM usage > 90%
-    "cpu_high": 95,           // warn when CPU usage > 95%
-    "temp_high": 85,          // warn when temperature > 85°C
-    "backup_days": 7,
-    "cooldown": 3600          // seconds between repeated alerts
-}
-```
-
-### Smart home (`smart_home.json`)
-
-Supports **Home Assistant**, **generic webhooks**, or a **simulated** mode —
-plus a per-device config (rooms, switches, lights, thermostats…).
+- [x] Bidirectional real-time Gemini Live WebSocket streaming.
+- [x] Hardened human-consent security gate (`confirm_token`).
+- [x] Decoupled audio hardware failure recovery (graceful degradation to text mode).
+- [x] Automated GitHub Actions CI across multiple Python versions.
+- [ ] **Local Offline Voice Fallback:** Integrating on-device STT/TTS (Whisper.cpp / Piper) when internet is disconnected.
+- [ ] **Multi-Monitor Spatial Vision:** Bounding-box UI element localization across multi-display setups.
+- [ ] **Modular Plugin SDK:** Allowing third-party developers to package custom tools into standalone python packages.
 
 ---
 
-## 📱 Remote Control
+## 🤝 Contributing
 
-Kaizumi includes Telegram remote control out of the box. It routes commands
-through the **same Gemini Live session** as local voice, so every tool, the safety
-gate, and memory behave identically from anywhere in the world.
+Contributions are warmly welcomed! Please read our [Contributing Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before submitting pull requests.
 
-### Telegram — remote control from anywhere
-
-1. Talk to [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token.
-2. Message your new bot once (this gives you the numeric chat id), then find
-   your chat id with `@userinfobot` or via `getUpdates`.
-3. Put both in `config/api_keys.json`:
-
-```jsonc
-{
-    "telegram_bot_token": "123456:ABC-DEF...",
-    "telegram_chat_id": 123456789
-}
-```
-
-Kaizumi starts polling automatically and **only responds to your chat id**.
-Built-in commands: `/status`, `/mute`, `/unmute`, `/mode`, `/voice`,
-`/screenshot`, `/help` — plus quick-reply keyboards. Voice notes are
-transcribed on the fly.
+For security concerns, please refer to our [Security Policy](SECURITY.md).
 
 ---
 
-## 🛡️ Safety model
+## 📄 License & Acknowledgments
 
-Kaizumi classifies every tool into **LOW / MEDIUM / HIGH** risk (`safety.py`)
-and enforces it centrally — no per-tool ad-hoc checks.
+This project is licensed under the **[MIT License](LICENSE)** — free for personal, educational, and commercial use.
 
-- **HIGH-risk actions** (delete/move files, run terminal commands, send
-  email/SMS, kill processes, auto-update games, shutdown/restart, drive
-  deletes, …) **require your explicit verbal confirmation** before they run.
-- When a high-risk tool is requested, Kaizumi asks *"May I …?"* and waits for
-  an explicit **yes** before re-invoking the action.
-- The model is instructed to **never set `confirm=true` on its own** — only
-  after you approve. This is *enforced technically*, not just by instruction:
-  a blocked high-risk call receives a **single-use token** (`confirm_token`)
-  bound to that exact call. The tool stays blocked until the model echoes the
-  token back, and each token works only once.
-- Secrets (API keys, tokens, passwords) are **redacted from logs** and never
-  written to memory.
-- Telegram remote control is locked to your verified chat id (fail-closed).
-- The desktop AI sandbox blocks `ctypes`/subprocess/escalation escapes and
-  obfuscated variants of dangerous calls.
-- URL fetching (document/web QA) refuses loopback, private, link-local, and
-  cloud-metadata targets (SSRF guard).
-
----
-
-## 🧩 Tools
-
-Kaizumi exposes **53 tools** to the model. The full list lives in `main.py`
-(`_build_tool_schemas`); highlights:
-
-| Category | Tools |
-|----------|-------|
-| 🖥️ **System** | `system_status`, `task_manager`, `computer_settings`, `autostart`, `clipboard`, `media_control`, `notify`, `pc_health` |
-| 🗂️ **Files** | `file_controller`, `open_app`, `desktop_control`, `read_pdf`, `pdf_qa`, `read_document`, `document_qa`, `create_presentation`, `create_spreadsheet` |
-| 🌐 **Web** | `web_search`, `browser_control`, `youtube_video`, `weather_report`, `flight_finder`, `translate` |
-| 💬 **Communication** | `send_message`, `gmail`, `email_watch`, `calendar`, `drive`, `google_auth`, `google_auth_status` |
-| 🤖 **Automation** | `cmd_control`, `code_helper`, `dev_agent`, `agent_task`, `schedule`, `daily_briefing`, `game_updater`, `smart_home_control` |
-| 👁️ **Vision** | `screen_process`, `vision_gesture`, `vision_click`, `wake_word` |
-| 🧠 **Memory** | `save_memory`, `recall_memory`, `forget_memory`, `clear_memory`, `set_mode`, `set_voice`, `set_mood` |
-| 🔑 **Admin** | `api_add_key` |
-
-Every tool is dispatched through a single handler table with per-tool
-timeouts and a loop guard that stops identical-arg / ping-pong tool loops.
-
----
-
-## 🎭 Modes, moods & voices
-
-- **Modes:** `normal`, `girlfriend`, `crazy_friend`, `butler`, `friend`,
-  `casual` — set with `set_mode` or Telegram `/mode`.
-- **Moods:** `calm`, `playful`, `romantic`, `strict` — set with `set_mood`.
-- **Voices:** 30 Gemini voices (Aoede, Charon, Fenrir, Kore, Puck, Zephyr,
-  …) — set with `set_voice` or Telegram `/voice`. Preferences persist across
-  sessions in memory.
-
----
-
-## 🧠 How it works
-
-- **Gemini Live API** (`models/gemini-3.1-flash-live-preview`) powers real-time
-  speech-to-speech interaction. Voice, screen, and control code run on-device;
-  speech understanding/generation and tool reasoning happen via Google's Gemini
-  API.
-- **Planner/executor** (`agent/`) breaks multi-step requests into tool calls,
-  runs them in order, and auto-recovers: retry → skip → replan → abort.
-- **Resilience layer** (`agent/resilience.py`) wraps every tool with a hard
-  timeout and bounded retries — a hung tool can't freeze the session.
-- **Loop guard** (`agent/loop_guard.py`) detects identical-arg / ping-pong
-  tool loops in live mode.
-- **Guardian** (`actions/guardian.py`) runs a background loop, watching system
-  health and speaking alerts.
-- **Monitor** (`actions/monitor.py`) watches user-defined rules (CPU, RAM,
-  battery, disk, temperature) and pushes alerts.
-- **In-app scheduler** (`main._scheduler_loop`) fires reminders with speech +
-  desktop notification — no Windows Task Scheduler needed.
-- **Wake word** (`actions/wake_word.py`) uses openwakeword on-device for
-  hands-free "Hey Kaizumi" activation (you can record your own wake word).
-- **Logging** (`logger.py`) writes one log file per run under `logs/` and
-  redacts secrets.
-
----
-
-## 📁 Project structure
-
-```
-kaizumi/
-├── main.py                    # engine: Gemini Live session, tools, scheduler
-├── ui.py                      # Tkinter animated UI, setup dialog, themes
-├── telegram_bot.py            # Telegram long-polling transport
-├── api_keys.py                # multi-key loading + 429 auto-rotation
-├── safety.py                  # central risk model + confirmation gate
-├── google_oauth.py            # Google device-flow OAuth
-├── setup.py                   # one-shot install + config creation
-├── actions/                   # 40+ tool implementations
-├── agent/                     # planner, executor, error recovery, task queue
-├── memory/                    # persistent memory (CRUD, pruning, secrets)
-├── config/                    # configuration (git-ignored)
-└── tests/                     # unit tests (no API keys, no network)
-```
-
----
-
-## 🛠️ Troubleshooting
-
-- **`1007 Request contains an invalid argument`** during a session: this
-  happens when text turns are sent via `send_client_content` instead of
-  `send_realtime_input`. Current code uses `send_realtime_input(text=...)` for
-  in-conversation text — if you fork and see it, check your send paths.
-- **Microphone not detected:** check the default input device in Windows sound
-  settings.
-- **Voice/tool errors are spoken aloud** — read the log file in `logs/` for
-  details (one file per run).
-- **Slow startup:** heavy ML packages (mediapipe, openwakeword) are imported
-  lazily — they load only when the matching feature (vision / wake word) is
-  first used, so startup stays fast.
-
----
-
-## 🧪 Tests
-
-Unit tests live in `tests/` and require **no API keys and no network** —
-external services (Gemini, Telegram, Google) are never called.
-
-```bash
-python -m unittest discover -s tests -v
-# or
-python -m pytest tests -q
-```
-
-Covered: risk classification & confirmation gate (`safety.py`), memory
-CRUD/pruning/secret filtering (`memory/memory_manager.py`), log redaction
-(`logger.py`), zip-slip protection (`file_controller.py`), multi-key/env
-loading (`api_keys.py`), plus the P0 security fixes — SSRF guard, exec-sandbox
-hardening, executor unknown-tool handling, and API-key readiness checks
-(`tests/test_p0_security.py`).
-
----
-
-## 📄 License
-
-[MIT](LICENSE) © Musayev Doniyor (Kaizo)
-
----
-
-<p align="center">
-  Made with ❤️ by <b>Musayev Doniyor</b> (Kaizo) · Star the repo if you find it useful! ⭐
-</p>
+- Powered by [Google Gemini Live API](https://ai.google.dev/).
+- Wake-word detection powered by [openWakeWord](https://github.com/dscripka/openWakeWord).
+- Browser automation powered by [Playwright](https://playwright.dev/).
+- Built with pride by Doniyor Musayev (Kaizo).

@@ -28,8 +28,11 @@ def main() -> None:
     subprocess.run([sys.executable, "-m", "pip", "install",
                     "-r", str(ROOT / "requirements.txt")], check=True)
 
-    print("Installing Playwright browsers...")
-    subprocess.run([sys.executable, "-m", "playwright", "install"], check=True)
+    print("Installing Playwright Chromium browser...")
+    try:
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+    except Exception as e:
+        print(f"  Note: Playwright browser install deferred ({e}).")
 
     print("Creating default config files...")
     create_default_configs()
