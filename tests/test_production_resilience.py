@@ -97,6 +97,59 @@ class HumanConsentVerificationTest(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_two_pending_requests_approve_one_other_remains_blocked(self):
+        """Simulate two pending high-risk requests (Action A & Action B).
+        When the human approves Action A, ONLY Action A must execute.
+        Action B must remain strictly blocked (neither token nor human flag leaks)."""
+        import main
+        ui_mock = MagicMock()
+        live = main.KaizumiLive(ui_mock)
+
+        # Issue tokens for two separate high-risk actions
+        tok_a = issue_confirmation_token("cmd_control", {"command": "dir"})
+        tok_b = issue_confirmation_token("file_controller", {"action": "delete", "path": "test.txt"})
+
+        executed = []
+        handlers = {
+            "cmd_control": (lambda a: executed.append("A") or "Ran A", 10),
+            "file_controller": (lambda a: executed.append("B") or "Ran B", 10),
+        }
+
+        async def run():
+            with patch.dict(live._tool_handlers, handlers):
+                # Human verbally approves Action A
+                live._mark_human_confirmed()
+
+                # Action A executes with its valid token
+                res_a = await live._dispatch_tool(
+                    "cmd_control",
+                    {"command": "dir", "confirm": True, "confirm_token": tok_a}
+                )
+                self.assertEqual(res_a.content, "Ran A")
+                self.assertEqual(executed, ["A"])
+
+                # Action B is attempted (either with tok_b or forged tok_a)
+                # Since human consent was consumed by Action A and reset to False, Action B is blocked!
+                res_b = await live._dispatch_tool(
+                    "file_controller",
+                    {"action": "delete", "path": "test.txt", "confirm": True, "confirm_token": tok_b}
+                )
+                self.assertTrue(
+                    "Action blocked: human user has not verbally approved this yet" in str(res_b.content) or
+                    "confirmation required" in str(res_b.content)
+                )
+                # Ensure Action B was NEVER executed
+                self.assertEqual(executed, ["A"])
+
+                # Attempting to replay tok_a against Action B also fails
+                res_b_replay = await live._dispatch_tool(
+                    "file_controller",
+                    {"action": "delete", "path": "test.txt", "confirm": True, "confirm_token": tok_a}
+                )
+                self.assertEqual(executed, ["A"])
+
+        asyncio.run(run())
+
 
 class TelegramNullCheckTest(unittest.TestCase):
     def test_telegram_loop_exits_cleanly_if_chat_id_is_none(self):

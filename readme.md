@@ -182,13 +182,17 @@ Because Kaizumi possesses desktop and command execution privileges, security is 
    - The LLM is technically barred from executing `Risk.HIGH` tools autonomously.
    - When a high-risk action is invoked, the engine generates an ephemeral, unguessable cryptographic token (`confirm_token`).
    - The engine halts execution, explains what it intends to do, and waits for the human user to explicitly say "yes", "confirm", or "proceed". Replay attacks or forged approval tokens are rejected immediately.
+   - **Multi-Pending Request Isolation:** Approval is strictly scoped to a single action. If multiple actions are queued, approving Action A immediately consumes the human approval flag; Action B remains blocked and requires its own explicit consent.
 3. **Pre-Hop SSRF Protection:**
    - The document and web QA engine resolves target hostnames before sending requests.
    - Requests targeting private subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`), link-local IPs (`169.254.0.0/16`), IPv6 loopbacks (`::1`), or cloud metadata endpoints (`metadata.google.internal`) are blocked.
    - HTTP redirect chains are inspected hop-by-hop prior to following.
-4. **Secret Redaction:**
+4. **Data Privacy & What Leaves Your Machine:**
+   - **What Leaves the Machine:** Encrypted audio frames (PCM 16kHz in, 24kHz out via TLS WebSocket) stream to Google Gemini Live API (`gemini-2.5-flash`) for real-time speech processing, alongside user-directed external queries (e.g. web search, Telegram polling).
+   - **What Stays 100% On-Device:** All OS automation and shell executions, OpenCV computer vision (face recognition and privacy face blurring), episodic memory (`memory/*.json`), system health watchdogs, and confirmation tokens.
+5. **Secret Redaction:**
    - Sensitive arguments (passwords, tokens, API keys) are masked before reaching log files, UI displays, or persistent memory.
-5. **No Blind `exec()` / `eval()`:**
+6. **No Blind `exec()` / `eval()`:**
    - The desktop automation pipeline dispatches declarative tasks through structured handlers, rejecting dynamic code execution.
 
 ---
@@ -228,7 +232,7 @@ Run all tests locally:
 pytest tests -v
 ```
 
-All 97 unit tests execute in under 25 seconds using in-memory mocks without consuming external API quota or requiring network access.
+All 98 unit tests execute in under 25 seconds using in-memory mocks without consuming external API quota or requiring network access.
 
 Continuous integration is enforced via [GitHub Actions](.github/workflows/ci.yml) across Windows runners on Python 3.11, 3.12, and 3.13.
 
