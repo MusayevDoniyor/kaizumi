@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import threading
 import json
 import sys
@@ -1823,6 +1823,7 @@ class KaizumiLive:
         if needs_confirmation(name, args, confirm=confirm, confirm_token=confirm_token):
             token = issue_confirmation_token(name, args) if not confirm else ""
             print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
+            self.ui.write_log(f"SECURITY: '{describe(name, args)}' requires your approval.")
             self._human_confirmed = False
             return ToolResult(
                 ok=True,
@@ -1831,14 +1832,17 @@ class KaizumiLive:
                 + (f"\n[token: {token}]" if token else ""),
                 error_kind="confirmation",
             )
-        # Defense-in-depth: if confirm is asserted, require human verification
-        if confirm and not getattr(self, "_human_confirmed", True):
+        # Defense-in-depth: if confirm is asserted, require human verification (fail-closed)
+        if confirm and not getattr(self, "_human_confirmed", False):
             print(f"[KAIZUMI] ⛔ {name} rejected — no human consent detected.")
+            self.ui.write_log(f"SECURITY: '{name}' blocked — no verbal consent.")
             return ToolResult(
                 ok=True,
                 content="Action blocked: human user has not verbally approved this yet. Ask the user for permission first.",
                 error_kind="confirmation",
             )
+        if confirm:
+            self.ui.write_log(f"SECURITY: '{name}' approved by user.")
         self._human_confirmed = False
 
         if face_verify:
@@ -2019,6 +2023,7 @@ class KaizumiLive:
         if needs_confirmation(name, args, confirm=confirm, confirm_token=confirm_token):
             token = issue_confirmation_token(name, args) if not confirm else ""
             print(f"[KAIZUMI] ⛔ {name} blocked — confirmation required")
+            self.ui.write_log(f"SECURITY: '{describe(name, args)}' requires your approval.")
             self._human_confirmed = False
             log_tool(name, args, error="confirmation required")
             if not self.ui.muted:
@@ -2029,12 +2034,15 @@ class KaizumiLive:
                     desc=describe(name, args), param=CONFIRM_PARAM)
                     + (f"\n[token: {token}]" if token else "")}
             )
-        if confirm and not getattr(self, "_human_confirmed", True):
+        if confirm and not getattr(self, "_human_confirmed", False):
             print(f"[KAIZUMI] ⛔ {name} rejected — no human consent detected.")
+            self.ui.write_log(f"SECURITY: '{name}' blocked — no verbal consent.")
             return types.FunctionResponse(
                 id=fc.id, name=name,
                 response={"result": "Action blocked: human user has not verbally approved this yet. Ask the user for permission first."}
             )
+        if confirm:
+            self.ui.write_log(f"SECURITY: '{name}' approved by user.")
         self._human_confirmed = False
 
 

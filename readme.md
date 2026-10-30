@@ -32,7 +32,7 @@
 
 ## 💡 Project Overview
 
-**Kaizumi** is an open-source, on-device AI companion built for Windows 10 and 11. Unlike traditional text-based chatbots or turn-by-turn speech wrappers, Kaizumi connects directly to Google's **Gemini Live API** via bidirectional WebSocket audio streaming (PCM 24kHz/16kHz), delivering natural, conversational speech with human-level latency and real-time interruption (barge-in) support.
+**Kaizumi** is an open-source Windows desktop AI assistant. While all operating system control, local vision, and memory operate 100% locally on your machine, real-time multimodal intelligence streams to Google's **Gemini Live API** via bidirectional WebSocket audio streaming (PCM 24kHz/16kHz) for low-latency turn-taking and natural interruption (barge-in) support.
 
 Equipped with screen awareness, local computer vision, persistent episodic memory, and a hardened system dispatch engine, Kaizumi can monitor system metrics, manage windows and files, write and run automation scripts, conduct research, control smart home devices, and guard user privacy—all while maintaining an animated cyber-themed desktop UI.
 
@@ -232,7 +232,7 @@ Run all tests locally:
 pytest tests -v
 ```
 
-All 98 unit tests execute in under 25 seconds using in-memory mocks without consuming external API quota or requiring network access.
+All 100 unit tests execute in under 30 seconds using in-memory mocks without consuming external API quota or requiring network access.
 
 Continuous integration is enforced via [GitHub Actions](.github/workflows/ci.yml) across Windows runners on Python 3.11, 3.12, and 3.13.
 
@@ -241,9 +241,10 @@ Continuous integration is enforced via [GitHub Actions](.github/workflows/ci.yml
 ## 🗺️ Roadmap
 
 - [x] Bidirectional real-time Gemini Live WebSocket streaming.
-- [x] Hardened human-consent security gate (`confirm_token`).
+- [x] Hardened human-consent security gate (`confirm_token` with TTL and burst pruning).
 - [x] Decoupled audio hardware failure recovery (graceful degradation to text mode).
 - [x] Automated GitHub Actions CI across multiple Python versions.
+- [ ] **Dedicated Visual Confirmation Dialog:** Out-of-context desktop approval modal to isolate confirmation from LLM context.
 - [ ] **Local Offline Voice Fallback:** Integrating on-device STT/TTS (Whisper.cpp / Piper) when internet is disconnected.
 - [ ] **Multi-Monitor Spatial Vision:** Bounding-box UI element localization across multi-display setups.
 - [ ] **Modular Plugin SDK:** Allowing third-party developers to package custom tools into standalone python packages.

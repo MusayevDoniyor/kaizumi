@@ -110,6 +110,38 @@ class ConfirmationTokenTest(unittest.TestCase):
                                       confirm=True, confirm_token="nope")
         )
 
+    def test_token_expires_after_ttl(self):
+        tok = safety.issue_confirmation_token("cmd_control", {"command": "dir"})
+        # Simulate time jump past TTL
+        from unittest.mock import patch
+        future_time = safety.time.time() + safety._TOKEN_TTL_SECONDS + 10
+        with patch("safety.time.time", return_value=future_time):
+            # Expired token should be rejected
+            self.assertTrue(
+                safety.needs_confirmation("cmd_control", {"command": "dir"},
+                                          confirm=True, confirm_token=tok)
+            )
+
+    def test_rapid_fire_tokens_pruned_to_capacity(self):
+        tokens = [
+            safety.issue_confirmation_token("cmd_control", {"command": f"dir_{i}"})
+            for i in range(safety.MAX_PENDING_TOKENS + 50)
+        ]
+        # Total pending tokens must not exceed MAX_PENDING_TOKENS
+        with safety._token_lock:
+            self.assertLessEqual(len(safety._pending_tokens), safety.MAX_PENDING_TOKENS)
+        # Oldest tokens should have been pruned
+        self.assertTrue(
+            safety.needs_confirmation("cmd_control", {"command": "dir_0"},
+                                      confirm=True, confirm_token=tokens[0])
+        )
+        # Newest token is still valid
+        newest = tokens[-1]
+        self.assertFalse(
+            safety.needs_confirmation("cmd_control", {"command": f"dir_{safety.MAX_PENDING_TOKENS + 49}"},
+                                      confirm=True, confirm_token=newest)
+        )
+
 
 class DescribeTest(unittest.TestCase):
 

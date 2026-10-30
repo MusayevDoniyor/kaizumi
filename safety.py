@@ -16,6 +16,7 @@ checks across the codebase.
 import json
 import secrets
 import threading
+import time
 from enum import IntEnum
 from typing import Any
 
@@ -194,9 +195,10 @@ CONFIRM_MESSAGE = (
 # cannot fabricate tokens (they are secrets), and each token is single-use and
 # bound to the exact (tool, sanitized args) fingerprint of the blocked call.
 
-_pending_tokens: dict[str, str] = {}
+_pending_tokens: dict[str, tuple[str, float]] = {}
 _token_lock = threading.Lock()
 _TOKEN_TTL_SECONDS = 600
+MAX_PENDING_TOKENS = 128
 
 
 def _fingerprint(name: str, args: dict | None) -> str:
@@ -206,12 +208,28 @@ def _fingerprint(name: str, args: dict | None) -> str:
     return json.dumps({"name": name, "args": safe}, sort_keys=True, default=str)
 
 
+def _prune_expired_tokens_locked(now: float) -> None:
+    """Prune expired tokens and prevent memory exhaustion under rapid-fire bursts."""
+    expired = [t for t, (_, ts) in _pending_tokens.items() if (now - ts) > _TOKEN_TTL_SECONDS]
+    for t in expired:
+        _pending_tokens.pop(t, None)
+    if len(_pending_tokens) > MAX_PENDING_TOKENS:
+        # Drop oldest tokens first if cap is exceeded
+        sorted_tokens = sorted(_pending_tokens.items(), key=lambda item: item[1][1])
+        excess = len(_pending_tokens) - MAX_PENDING_TOKENS
+        for t, _ in sorted_tokens[:excess]:
+            _pending_tokens.pop(t, None)
+
+
 def issue_confirmation_token(name: str, args: dict | None) -> str:
     """Issue a single-use token authorizing THIS exact call after the user
     approves. Called only when the gate blocks a HIGH-risk tool."""
+    now = time.time()
     token = secrets.token_urlsafe(24)
+    fp = _fingerprint(name, args)
     with _token_lock:
-        _pending_tokens[token] = _fingerprint(name, args)
+        _pending_tokens[token] = (fp, now)
+        _prune_expired_tokens_locked(now)
     return token
 
 
@@ -221,11 +239,15 @@ def redeem_confirmation_token(name: str, args: dict | None, token: str) -> bool:
     different tool/args — the call stays blocked."""
     if not token:
         return False
+    now = time.time()
     with _token_lock:
-        expected = _pending_tokens.pop(token, None)
-    if expected is None:
+        entry = _pending_tokens.pop(token, None)
+    if entry is None:
         return False
-    if expected != _fingerprint(name, args):
+    expected_fp, issued_at = entry
+    if (now - issued_at) > _TOKEN_TTL_SECONDS:
+        return False
+    if expected_fp != _fingerprint(name, args):
         return False
     return True
 
